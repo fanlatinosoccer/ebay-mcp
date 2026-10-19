@@ -58,3 +58,62 @@ export const relistItemSchema = z.object({
     .optional()
     .describe('Optional Trading API Item fields to change while relisting'),
 });
+
+/** Input accepted by getBestOffers (Trading GetBestOffers). */
+export const getBestOffersSchema = z.object({
+  itemId: z
+    .string()
+    .optional()
+    .describe('Optional eBay item ID. Omit to list Best Offers across all of the seller listings.'),
+  bestOfferId: z
+    .string()
+    .optional()
+    .describe('Optional single Best Offer ID to retrieve (requires itemId).'),
+  bestOfferStatus: z
+    .enum(['Active', 'All'])
+    .optional()
+    .describe('Offer status filter, defaulting to Active (pending offers awaiting a response).'),
+  page: z.number().optional().describe('Page number, defaulting to 1'),
+  entriesPerPage: z
+    .number()
+    .optional()
+    .describe('Offers per page, defaulting to 25 (eBay caps this at 25 for GetBestOffers)'),
+  includeRaw: z
+    .boolean()
+    .optional()
+    .describe('Include the raw parsed Trading API response alongside the normalized offers'),
+});
+
+/** Input accepted by respondToBestOffer (Trading RespondToBestOffer). */
+export const respondToBestOfferSchema = z.object({
+  itemId: z.string().describe('The eBay item ID the Best Offer(s) belong to'),
+  bestOfferIds: z
+    .array(z.string())
+    .min(1)
+    .describe(
+      'Best Offer IDs to respond to (from ebay_get_best_offers). Counter accepts exactly one ID.',
+    ),
+  action: z
+    .enum(['Accept', 'Decline', 'Counter'])
+    .describe('Required, no default. Accept, Decline, or Counter the offer(s).'),
+  counterOfferPrice: z
+    .number()
+    .positive()
+    .optional()
+    .describe('Counter offer price per unit. Required when action is Counter, rejected otherwise.'),
+  counterOfferQuantity: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Counter offer quantity (Counter only), defaulting to the quantity in the offer'),
+  currency: z
+    .string()
+    .optional()
+    .describe('ISO currency code for counterOfferPrice, defaulting to USD'),
+  sellerResponse: z
+    .string()
+    .max(250)
+    .optional()
+    .describe('Optional message to the buyer (max 250 characters)'),
+});

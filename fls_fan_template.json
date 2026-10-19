@@ -1,0 +1,238 @@
+{
+  "template_id": "fls_club_america_fan_jersey_v1",
+  "updated": "2026-10-06T12:52:00-04:00",
+  "seller": "fanlatinosoccer",
+  "marketplaceId": "EBAY_US",
+  "source_listings": [
+    {
+      "itemId": "860011639202",
+      "title": "Brian Rodriguez #7 Mens LARGE Adidas Club America Home FAN Jersey Liga Mx",
+      "price": 115.0,
+      "note": "ItemSpecifics.Player on this live listing incorrectly says Henry Martin; do not copy that value."
+    },
+    {
+      "itemId": "318857894114",
+      "title": "Alex Zendejas #10 Mens LARGE Adidas Club America Home FAN Jersey Liga Mx",
+      "price": 115.0
+    }
+  ],
+  "source_dump": "/workspace/fls/insights/america_fan/active_live_2026-10-06.json",
+  "extract_dump": "/workspace/fls/insights/america_fan/getitem_fan_l_extract.json",
+  "recommended_draft_path": "inventory_rest_unpublished_offer",
+  "why": "Seller has 525 Trading/Seller Hub active listings and 0 Inventory API SKUs. Trading ebay_create_listing (AddFixedPriceItem) goes LIVE immediately. Inventory ebay_create_offer creates an UNPUBLISHED draft; ebay_publish_offer is the go-live step.",
+  "one_time_prereqs": {
+    "inventory_locations": {
+      "status": "NONE",
+      "action": "Create once via ebay_create_inventory_location before first draft.",
+      "suggested_merchantLocationKey": "fls-ftlauderdale-33308",
+      "address": {
+        "addressLine1": "TBD_BY_CHARLIE",
+        "city": "Fort Lauderdale",
+        "stateOrProvince": "FL",
+        "postalCode": "33308",
+        "country": "US"
+      },
+      "locationTypes": ["WAREHOUSE"],
+      "merchantLocationStatus": "ENABLED",
+      "name": "FLS Fort Lauderdale"
+    },
+    "mcp_write_tools": "EBAY_READ_ONLY=false already in .env; restart user-ebay-fls MCP so ebay_create_or_replace_inventory_item / ebay_create_offer / ebay_publish_offer are exposed (catalog was read-only when registered)."
+  },
+  "trading_defaults": {
+    "CategoryID": "2887",
+    "CategoryName": "Sports Mem, Cards & Fan Shop:Fan Apparel & Souvenirs:Soccer-International Clubs",
+    "ConditionID": "1000",
+    "ConditionDisplayName": "New",
+    "ListingType": "FixedPriceItem",
+    "ListingDuration": "GTC",
+    "Currency": "USD",
+    "Country": "US",
+    "Location": "Fort Lauderdale, Florida",
+    "PostalCode": "33308",
+    "DispatchTimeMax": "0",
+    "Quantity": "1",
+    "AutoPay": "true",
+    "BestOfferEnabled": true,
+    "PictureSource": "EPS",
+    "StoreCategoryID": "4017709719",
+    "SellerProfiles": {
+      "ShippingProfileID": "257269369024",
+      "ShippingProfileName": "Trading Cards & Others 2026 Calculated Shipping",
+      "ReturnProfileID": "197981466024",
+      "ReturnProfileName": "No returns accepted",
+      "PaymentProfileID": "188273655024",
+      "PaymentProfileName": "eBay Payments:Immediate pay"
+    },
+    "ShippingType": "CalculatedDomesticFlatInternational",
+    "ShippingPackageDetails": {
+      "PackageDepth": 1.0,
+      "PackageLength": 15.0,
+      "PackageWidth": 12.0,
+      "unit": "inches",
+      "ShippingPackage": "PackageThickEnvelope",
+      "WeightMajorLbs": 0,
+      "WeightMinorOz": 8
+    }
+  },
+  "alternate_fulfillment_policies": [
+    {"fulfillmentPolicyId": "246232238024", "name": "Jerseys | 2026 Soccer Jersey Flat Rate"},
+    {"fulfillmentPolicyId": "255930873024", "name": "PROMO Jerseys | 2026 Soccer Jersey UPS Ground Shipping"},
+    {"fulfillmentPolicyId": "260082674024", "name": "Jerseys | 2026 Soccer Jersey Flat Rate Copy"}
+  ],
+  "default_item_specifics": {
+    "Brand": ["adidas"],
+    "Sport": ["Soccer"],
+    "Officially Licensed": ["Yes"],
+    "Size": ["L"],
+    "Color": ["Yellow"],
+    "Product": ["Jersey"],
+    "Team": ["América"],
+    "Gender": ["Men"],
+    "Country of Origin": ["Mexico"],
+    "Player": ["{{PLAYER_ASPECT}}"]
+  },
+  "variable_fields": {
+    "PLAYER_DISPLAY": "Title name, e.g. Israel Reyes",
+    "PLAYER_ASPECT": "eBay Player aspect value (often fuller name, e.g. Alejandro Zendejas)",
+    "NUMBER": "Jersey number without #",
+    "KIT": "Home | Away | Third | special (Autism, Pac-Man, 8M, etc.)",
+    "VERSION": "FAN (default) | STADIUM when applicable",
+    "BRAND": "adidas (default Home FAN) | Nike for some Away Stadium",
+    "COLOR": "Yellow for Home FAN; override for Away/special",
+    "SIZE": "L for this FAN LARGE template",
+    "PRICE": "Default 115.00 USD for standard Liga Mx Home FAN L; specials higher",
+    "SKU": "Seller-defined; required for Inventory path. Suggested: FLS-AME-FAN-L-{{NUMBER}}-{{PLAYER_SLUG}}-{{YYYYMMDD}}",
+    "IMAGE_URLS": "EPS URLs after upload; live comps use 13–16 photos (front/back/sides/collar/tags)"
+  },
+  "title_pattern": "{{PLAYER_DISPLAY}} #{{NUMBER}} Mens LARGE {{BRAND}} Club America {{KIT}} FAN Jersey Liga Mx",
+  "title_max_chars": 80,
+  "price_defaults": {
+    "currency": "USD",
+    "standard_home_fan_large": "115.00",
+    "notes": "Match live Brian/Zendejas Home FAN L at $115. Special editions (Autism, Pac-Man, Pink, etc.) price higher per comps in active_live dump."
+  },
+  "description_html": "<p>Authenticity Guaranteed – 100% Official Merchandise!</p><br /><p>We take immense pride in offering only 100% authentic, official soccer merchandise. As a trusted business seller, we do not sell fakes or knock-offs—ever. Each listing includes detailed photos, including close-ups of internal and external serial tag numbers, so you can buy with total confidence.</p><br /><p>Don’t just take our word for it—check out our stellar buyer feedback to see why fans and collectors trust us for their soccer jersey needs.</p><br /><p>If you have any questions, feel free to send us a message. We’re here to help!</p><br /><p>Only the real deal. No exceptions.</p>",
+  "description_notes": "Live FAN L listings use this short authenticity boilerplate only (no tables, no inline images in description). Photos carry the product detail.",
+  "photo_shot_list": [
+    "front flat / on hanger",
+    "back with name+number",
+    "left sleeve / crest detail",
+    "right sleeve / sponsor",
+    "collar / neck label",
+    "size tag",
+    "care / authenticity / serial tags (close-up)",
+    "extra angles to reach ~12–16 images like live comps"
+  ],
+  "mcp_draft_workflow": {
+    "path": "inventory_rest",
+    "do_not_call_until_approved": ["ebay_publish_offer", "ebay_bulk_publish_offer", "ebay_create_listing"],
+    "steps": [
+      {
+        "tool": "ebay_create_inventory_location",
+        "when": "once if locations empty",
+        "required": ["merchantLocationKey", "body.location.address", "body.name", "body.merchantLocationStatus"]
+      },
+      {
+        "tool": "ebay_upload_images",
+        "required": ["local image paths under EBAY_MCP_MEDIA_DIRS"],
+        "returns": "EPS imageUrls in order"
+      },
+      {
+        "tool": "ebay_create_or_replace_inventory_item",
+        "required_fields": {
+          "sku": "{{SKU}}",
+          "body.condition": "NEW",
+          "body.availability.shipToLocationAvailability.quantity": 1,
+          "body.product.title": "{{title_pattern}}",
+          "body.product.description": "{{description_html}}",
+          "body.product.brand": "adidas",
+          "body.product.aspects": "{{default_item_specifics with Player filled}}",
+          "body.product.imageUrls": "{{IMAGE_URLS}}",
+          "body.packageWeightAndSize": {
+            "dimensions": {"height": 1, "length": 15, "width": 12, "unit": "INCH"},
+            "weight": {"value": 8, "unit": "OUNCE"},
+            "packageType": "PACKAGE_THICK_ENVELOPE"
+          }
+        }
+      },
+      {
+        "tool": "ebay_create_offer",
+        "note": "Creates UNPUBLISHED draft (not live).",
+        "required_fields": {
+          "body.sku": "{{SKU}}",
+          "body.marketplaceId": "EBAY_US",
+          "body.format": "FIXED_PRICE",
+          "body.availableQuantity": 1,
+          "body.categoryId": "2887",
+          "body.listingDescription": "{{description_html}}",
+          "body.listingDuration": "GTC",
+          "body.merchantLocationKey": "{{merchantLocationKey}}",
+          "body.pricingSummary.price": {"currency": "USD", "value": "115.00"},
+          "body.listingPolicies": {
+            "fulfillmentPolicyId": "257269369024",
+            "paymentPolicyId": "188273655024",
+            "returnPolicyId": "197981466024",
+            "bestOfferTerms": {"bestOfferEnabled": true}
+          }
+        },
+        "returns": "offerId (status UNPUBLISHED)"
+      },
+      {
+        "tool": "ebay_get_listing_fees",
+        "optional": true,
+        "before": "ebay_publish_offer"
+      },
+      {
+        "tool": "ebay_publish_offer",
+        "required_fields": {"offerId": "{{offerId}}"},
+        "warning": "GOES LIVE. Only after Charlie confirms."
+      }
+    ],
+    "legacy_trading_not_for_drafts": {
+      "tool": "ebay_create_listing",
+      "maps_to": "AddFixedPriceItem (FIXED_PRICE) or AddItem (AUCTION)",
+      "required_fields": {
+        "format": "FIXED_PRICE",
+        "item": {
+          "Title": "{{title}}",
+          "Description": "{{description_html}}",
+          "PrimaryCategory": {"CategoryID": "2887"},
+          "StartPrice": "115.00",
+          "ConditionID": "1000",
+          "Country": "US",
+          "Currency": "USD",
+          "Location": "Fort Lauderdale, Florida",
+          "PostalCode": "33308",
+          "Quantity": "1",
+          "ListingDuration": "GTC",
+          "DispatchTimeMax": "0",
+          "PictureDetails": {"PictureURL": ["{{IMAGE_URLS}}"]},
+          "ItemSpecifics": {"NameValueList": "{{default_item_specifics}}"},
+          "SellerProfiles": {
+            "SellerShippingProfile": {"ShippingProfileID": "257269369024"},
+            "SellerReturnProfile": {"ReturnProfileID": "197981466024"},
+            "SellerPaymentProfile": {"PaymentProfileID": "188273655024"}
+          },
+          "BestOfferDetails": {"BestOfferEnabled": "true"},
+          "ShippingPackageDetails": {
+            "PackageDepth": "1",
+            "PackageLength": "15",
+            "PackageWidth": "12",
+            "WeightMajor": "0",
+            "WeightMinor": "8",
+            "ShippingPackage": "PackageThickEnvelope"
+          }
+        }
+      },
+      "warning": "Publishes immediately. Not a draft. Do not use for unpublished drafts."
+    }
+  },
+  "charlie_must_provide_per_listing": [
+    "Photos (front/back/tags; enough for ~12–16 EPS uploads)",
+    "Player display name + eBay Player aspect value",
+    "Jersey number",
+    "Kit/version confirmation (Home FAN Liga Mx vs special)",
+    "Price if not the $115 standard Home FAN L",
+    "Street address line for one-time inventory location (city/ZIP known: Fort Lauderdale 33308)"
+  ]
+}

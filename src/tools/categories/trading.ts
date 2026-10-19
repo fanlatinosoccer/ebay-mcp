@@ -4,8 +4,10 @@ import {
   createListingSchema,
   endListingSchema,
   getActiveListingsSchema,
+  getBestOffersSchema,
   getListingSchema,
   relistItemSchema,
+  respondToBestOfferSchema,
   reviseListingSchema,
 } from '@/utils/trading/trading.js';
 import { Effect } from 'effect';
@@ -59,5 +61,21 @@ export const tradingEntries: ToolEntry[] = [
     inputSchema: relistItemSchema.shape,
     annotations: { readOnlyHint: false },
     handler: (api, args) => Effect.runPromise(api.trading.relistItem(args)),
+  }),
+  defineTool({
+    name: 'ebay_get_best_offers',
+    description:
+      'List Best Offers received from buyers on your listings (default: pending/Active offers).\n\nUses the Trading API (GetBestOffers). Omit itemId to list offers across all listings. Returns a normalized list with itemId, title, listPrice, bestOfferId, buyerUserId, buyerFeedbackScore, price offered, currency, quantity, expirationTime, status, and buyer/seller messages. Read-only.\n\nRequired: User OAuth token.',
+    inputSchema: getBestOffersSchema.shape,
+    annotations: { readOnlyHint: true },
+    handler: (api, args) => Effect.runPromise(api.trading.getBestOffers(args)),
+  }),
+  defineTool({
+    name: 'ebay_respond_to_best_offer',
+    description:
+      'Accept, decline, or counter Best Offers on a listing.\n\nUses the Trading API (RespondToBestOffer). action is REQUIRED (Accept | Decline | Counter) with no default. Counter requires counterOfferPrice and exactly one bestOfferId. Accepting creates a binding sale. Get bestOfferIds from ebay_get_best_offers.\n\nRequired: User OAuth token.',
+    inputSchema: respondToBestOfferSchema.shape,
+    annotations: { readOnlyHint: false, destructiveHint: true },
+    handler: (api, args) => Effect.runPromise(api.trading.respondToBestOffer(args)),
   }),
 ];
