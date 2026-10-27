@@ -1,0 +1,81 @@
+{
+  "name": "FLS iOS listing template (Charlie 2026-10-06)",
+  "source": "eBay iOS Listing summary screenshots + description paste",
+  "title_pattern": "{SIGNED?} {Player} #{N} Mens {SIZE} {Brand} {Team} {Kit} {Version} Jersey",
+  "example_title": "SIGNED Mateo Chavez #20 Mens MEDIUM Adidas Mexico Away Authentic Player Jersey",
+  "category": {
+    "primary": "Sports Mem, Cards & Fan Shop > Fan Apparel & Souvenirs > Soccer-International Clubs",
+    "categoryId": "2887",
+    "storeCategory": "International Teams Jerseys > Mexico (México)"
+  },
+  "condition": "New",
+  "conditionId": "1000",
+  "item_specifics_required": [
+    "Product",
+    "Team",
+    "Size",
+    "Gender",
+    "Brand",
+    "Color",
+    "Player",
+    "Officially Licensed",
+    "Country of Origin",
+    "Event/Tournament",
+    "Sport"
+  ],
+  "item_specifics_defaults": {
+    "Product": "Jersey",
+    "Gender": "Men",
+    "Brand": "adidas",
+    "Officially Licensed": "Yes",
+    "Sport": "Soccer"
+  },
+  "description_html_plain": "Authenticity Guaranteed – 100% Official Merchandise!\n\nWe take immense pride in offering only 100% authentic, official soccer merchandise. As a trusted business seller, we do not sell fakes or knock-offs—ever. Each listing includes detailed photos, including close-ups of internal and external serial tag numbers, so you can buy with total confidence.\n\nDon’t just take our word for it—check out our stellar buyer feedback to see why fans and collectors trust us for their soccer jersey needs.\n\nIf you have any questions, feel free to send us a message. We’re here to help!\n\nOnly the real deal. No exceptions.",
+  "pricing": {
+    "format": "Buy It Now",
+    "duration": "Good 'Til Cancelled",
+    "best_offer": true,
+    "example_price": 895.0,
+    "example_min_offer": 700.0,
+    "note": "Price and min offer are per listing; FAN blank defaults still $115 unless Charlie says otherwise"
+  },
+  "shipping": {
+    "policy_name": "Trading Cards & Others 2026 Calculated Shipping",
+    "policyId": "257269369024",
+    "package": {
+      "weight_oz": 8,
+      "dims_in": [
+        10,
+        8,
+        4
+      ]
+    },
+    "domestic": [
+      "USPS Ground Advantage",
+      "UPS 3 Day Select"
+    ],
+    "international": "eBay International Shipping"
+  },
+  "preferences": {
+    "payment_policy": "Immediate pay / eBay Payments",
+    "paymentProfileId": "188273655024",
+    "handling_time": "Same business day",
+    "item_location_zip": "33308",
+    "item_location": "Fort Lauderdale, FL, United States",
+    "return_policy": "No returns accepted",
+    "returnProfileId": "197981466024",
+    "ebay_international_returns": "Accepted within 30 days (eBay managed)"
+  },
+  "promoted_listings": {
+    "enabled": true,
+    "ad_rate_percent": 3.0,
+    "charity": false
+  },
+  "agent_rules": [
+    "Always use this authenticity description verbatim unless Charlie overrides",
+    "Always fill Product/Team/Size/Gender/Brand/Color/Player/Licensed/COO/Event/Sport",
+    "Identify from photos what Charlie does not state: player, number, size, kit, signed, color, brand, team",
+    "Never publish without Charlie OK; create unpublished draft only",
+    "Promote at 3.0% ad rate when creating live/promoted"
+  ]
+}
