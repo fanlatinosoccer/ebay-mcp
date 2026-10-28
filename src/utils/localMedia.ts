@@ -77,7 +77,7 @@ const DOCUMENT_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   jpeg: 'image/jpeg',
   png: 'image/png',
 };
-const MEDIA_POLICIES = {
+export const MEDIA_POLICIES = {
   image: { types: IMAGE_MIME_BY_EXTENSION, limit: MAX_IMAGE_BYTES },
   video: { types: VIDEO_MIME_BY_EXTENSION, limit: MAX_VIDEO_BYTES },
   document: { types: DOCUMENT_MIME_BY_EXTENSION, limit: MAX_DOCUMENT_BYTES },
@@ -201,7 +201,7 @@ const sameFamily = (expected: string, sniffed: string): boolean =>
   (HEIF_FAMILY.has(expected) && HEIF_FAMILY.has(sniffed));
 
 /** Explains why media bytes do not carry the extension's signature; `undefined` when they do. */
-const mediaSignatureProblem = (bytes: Buffer, mimeType: string): string | undefined => {
+export const mediaSignatureProblem = (bytes: Buffer, mimeType: string): string | undefined => {
   const sniffed = sniffMediaType(bytes);
   if (sniffed && sameFamily(mimeType, sniffed)) {
     return;

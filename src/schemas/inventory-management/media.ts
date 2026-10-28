@@ -11,7 +11,7 @@ const mediaReferenceSchema = z
   .string()
   .min(1)
   .describe(
-    'Absolute local path, or media://<relative-path> resolved under EBAY_MCP_MEDIA_ROOT. The file must sit inside EBAY_MCP_MEDIA_DIRS / EBAY_MCP_MEDIA_ROOT',
+    'https:// URL, data:<mime>;base64,<payload> URI, absolute local path, or media://<relative-path> (local files must sit inside EBAY_MCP_MEDIA_DIRS / EBAY_MCP_MEDIA_ROOT)',
   );
 
 const waitForProcessingSchema = z
@@ -38,7 +38,7 @@ export const uploadImagesInputSchema = z.object({
 /** Validates the ebay_upload_video input. */
 export const uploadVideoInputSchema = z.object({
   path: mediaReferenceSchema.describe(
-    'Absolute local path or media:// reference to an MP4 or MOV file up to 150 MB',
+    'https:// URL, base64 data URI, absolute local path or media:// reference to an MP4 or MOV file up to 150 MB',
   ),
   title: z
     .string()

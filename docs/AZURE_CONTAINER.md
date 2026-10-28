@@ -97,6 +97,92 @@ containers:
         value: "3000"
 ```
 
+## Tool gating (allowlist, denylist, token guard)
+
+Applied after `EBAY_MCP_TOOLS` (families) and `EBAY_READ_ONLY`, in this order:
+
+| Name | Example | Purpose |
+| --- | --- | --- |
+| `EBAY_TOOL_ALLOWLIST` | `ebay_get_orders,ebay_revise_listing` | When set, only these tool names load. Unknown names are logged as warnings. |
+| `EBAY_TOOL_DENYLIST` | `ebay_issue_refund` | These tool names never load. Deny wins over allow. |
+| `EBAY_FORBID_TOKEN_TOOLS` | `true` | Startup fails if any `token-management` tool (`ebay_set_user_tokens`, `ebay_clear_tokens`, `ebay_display_credentials`, `ebay_refresh_access_token`, …) would load. |
+| `EBAY_MCP_REMOTE_MEDIA` | `true` (default) | Media tools accept `https://` URLs and `data:<mime>;base64,` URIs. Set `false` to allow local files only. |
+
+The startup log reports how many tools each gate kept.
+
+### Media in a container
+
+`ebay_upload_images`, `ebay_upload_video`, `ebay_attach_media_to_inventory_item`,
+`ebay_upload_document` and `ebay_upload_post_order_document` accept, besides local
+paths, an `https://` URL (downloaded by the server; plain http, embedded
+credentials, localhost and private/link-local IP literals are refused and redirects
+are not followed) or a base64 `data:` URI. Both go through the same size limits and
+content-signature checks as local files, so no `EBAY_MCP_MEDIA_DIRS` is needed.
+
+### Write instance: PROPOSAL, pending Charlie's confirmation
+
+> **Not approved yet.** This list is a proposal. Nothing below is deployed until
+> Charlie confirms the exact tool list, the spend cap and the Azure changes.
+
+A second Container App (proposed name `fls-ebay-mcp-write`) with its own identity
+(`fls-ebay-mcp-write-id`) and its own bearer secret (`ebay-mcp-write-bearer`), one
+replica (min 1, max 1). Settings that differ from the read-only app:
+
+| Name | Value |
+| --- | --- |
+| `EBAY_READ_ONLY` | `false` |
+| `EBAY_FORBID_TOKEN_TOOLS` | `true` |
+| `EBAY_TOOL_ALLOWLIST` | see below |
+| `MCP_AUTH_TOKEN` | secretRef `ebay-mcp-write-bearer` |
+
+Proposed write tools (used by FLS agents today):
+
+- `ebay_revise_listing`
+- `ebay_upload_images`
+- `ebay_send_offer_to_interested_buyers`
+- `ebay_send_message`
+- `ebay_publish_offer`
+- `ebay_create_or_replace_inventory_item`
+- `ebay_create_listing`
+- `ebay_create_offer`
+- `ebay_respond_to_best_offer`
+- `ebay_update_conversation`
+
+Proposed supporting read tools:
+
+- `ebay_create_image_from_url`
+- `ebay_get_listing`
+- `ebay_get_active_listings`
+- `ebay_get_best_offers`
+- `ebay_get_orders`
+- `ebay_get_order`
+- `ebay_get_inventory_item`
+- `ebay_get_inventory_items`
+- `ebay_get_offers`
+- `ebay_get_offer`
+- `ebay_get_conversations`
+- `ebay_get_conversation`
+- `ebay_find_eligible_items`
+- `ebay_get_category_suggestions`
+- `ebay_get_item_aspects_for_category`
+- `ebay_get_fulfillment_policies`
+- `ebay_get_payment_policies`
+- `ebay_get_return_policies`
+- `ebay_get_inventory_locations`
+- `ebay_get_listing_fees`
+- `ebay_get_store_categories`
+
+Excluded on purpose (not in the allowlist): every token-management tool, refunds
+(`ebay_issue_refund`), postage purchase (`ebay_create_shipment_from_shipping_quote`),
+payout settings (`ebay_update_payout_percentage`), signing keys, `ebay_register_client`,
+business-policy create/update/delete, and marketing campaign writes.
+
+Value for `EBAY_TOOL_ALLOWLIST` (one line):
+
+```text
+ebay_revise_listing,ebay_upload_images,ebay_send_offer_to_interested_buyers,ebay_send_message,ebay_publish_offer,ebay_create_or_replace_inventory_item,ebay_create_listing,ebay_create_offer,ebay_respond_to_best_offer,ebay_update_conversation,ebay_create_image_from_url,ebay_get_listing,ebay_get_active_listings,ebay_get_best_offers,ebay_get_orders,ebay_get_order,ebay_get_inventory_item,ebay_get_inventory_items,ebay_get_offers,ebay_get_offer,ebay_get_conversations,ebay_get_conversation,ebay_find_eligible_items,ebay_get_category_suggestions,ebay_get_item_aspects_for_category,ebay_get_fulfillment_policies,ebay_get_payment_policies,ebay_get_return_policies,ebay_get_inventory_locations,ebay_get_listing_fees,ebay_get_store_categories
+```
+
 ## Token lifetime
 
 `EBAY_USER_REFRESH_TOKEN` from Key Vault is the durable credential. The process

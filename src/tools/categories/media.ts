@@ -19,12 +19,12 @@ import {
 import { defineTool } from '@/tools/defineTool.js';
 import type { ToolEntry } from '@/tools/registry.js';
 import type { OutputArgs } from '@/tools/types.js';
-import { loadLocalMedia, loadLocalMediaList } from '@/utils/localMedia.js';
+import { loadMediaReference, loadMediaReferenceList } from '@/utils/remoteMedia.js';
 import { Effect } from 'effect';
 import { zodToJsonSchema } from 'zod-to-json-schema';
 
 const MEDIA_ACCESS_NOTE =
-  'Local file access is opt-in: the file must sit inside a directory listed in EBAY_MCP_MEDIA_DIRS (or under EBAY_MCP_MEDIA_ROOT, which also anchors media://<relative-path> references). Symlinks are resolved before the check.';
+  'Each file may be an https:// URL or a data:<mime>;base64,<payload> URI (validated with the same size and content checks; disable with EBAY_MCP_REMOTE_MEDIA=false), or a local file. Local file access is opt-in: the file must sit inside a directory listed in EBAY_MCP_MEDIA_DIRS (or under EBAY_MCP_MEDIA_ROOT, which also anchors media://<relative-path> references). Symlinks are resolved before the check.';
 
 const toMilliseconds = (seconds: number | undefined): number | undefined =>
   seconds === undefined ? undefined : seconds * 1000;
@@ -69,12 +69,12 @@ export const mediaEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_upload_document',
-    description: `Upload a local PDF, JPEG/JPG or PNG (up to 10 MiB) to a staged documentId. Animated/multi-page PNG is unsupported. Check ebay_get_document for ACCEPTED. Requires sell.inventory. ${MEDIA_ACCESS_NOTE}`,
+    description: `Upload a PDF, JPEG/JPG or PNG (up to 10 MiB) to a staged documentId. Animated/multi-page PNG is unsupported. Check ebay_get_document for ACCEPTED. Requires sell.inventory. ${MEDIA_ACCESS_NOTE}`,
     inputSchema: uploadDocumentInputSchema.shape,
     annotations: { readOnlyHint: false, destructiveHint: false },
     handler: (api, args) =>
       Effect.runPromise(
-        loadLocalMedia(args.path, 'document', getMediaAccessConfig()).pipe(
+        loadMediaReference(args.path, 'document', getMediaAccessConfig()).pipe(
           Effect.flatMap((file) => api.media.uploadDocument({ documentId: args.documentId, file })),
         ),
       ),
@@ -86,7 +86,7 @@ export const mediaEntries: ToolEntry[] = [
     annotations: { readOnlyHint: false, destructiveHint: false },
     handler: (api, args) =>
       Effect.runPromise(
-        loadLocalMedia(args.path, 'postOrderDocument', getMediaAccessConfig()).pipe(
+        loadMediaReference(args.path, 'postOrderDocument', getMediaAccessConfig()).pipe(
           Effect.flatMap((file) =>
             api.media.uploadPostOrderDocument({
               file,
@@ -130,7 +130,7 @@ export const mediaEntries: ToolEntry[] = [
 
   defineTool({
     name: 'ebay_upload_images',
-    description: `Upload local pictures to eBay Picture Services and return the EPS image URLs in the same order, ready for product.imageUrls on an inventory item. Uses the Media API (createImageFromFile). Unused images expire after a while; they become permanent once a listing uses them.\n\n${MEDIA_ACCESS_NOTE}`,
+    description: `Upload pictures (URLs, base64 data URIs or local files) to eBay Picture Services and return the EPS image URLs in the same order, ready for product.imageUrls on an inventory item. Uses the Media API (createImageFromFile). Unused images expire after a while; they become permanent once a listing uses them.\n\n${MEDIA_ACCESS_NOTE}`,
     inputSchema: uploadImagesInputSchema.shape,
     outputSchema: zodToJsonSchema(uploadImagesOutputSchema, {
       name: 'UploadImagesResponse',
@@ -139,14 +139,14 @@ export const mediaEntries: ToolEntry[] = [
     annotations: { readOnlyHint: false },
     handler: (api, args) =>
       Effect.runPromise(
-        loadLocalMediaList(args.paths, 'image', getMediaAccessConfig()).pipe(
+        loadMediaReferenceList(args.paths, 'image', getMediaAccessConfig()).pipe(
           Effect.flatMap((files) => api.media.uploadImageFiles(files)),
         ),
       ),
   }),
   defineTool({
     name: 'ebay_upload_video',
-    description: `Upload a local video through the Media API lifecycle (createVideo → uploadVideo → getVideo) and return the videoId with its processing status. Waits up to waitForProcessingSeconds (default 120) for status LIVE; PROCESSING means check again with ebay_get_video, BLOCKED or PROCESSING_FAILED explain why eBay rejected it (statusMessage). MP4/MOV up to 150 MB; one video per listing.\n\n${MEDIA_ACCESS_NOTE}`,
+    description: `Upload a video (URL, base64 data URI or local file) through the Media API lifecycle (createVideo → uploadVideo → getVideo) and return the videoId with its processing status. Waits up to waitForProcessingSeconds (default 120) for status LIVE; PROCESSING means check again with ebay_get_video, BLOCKED or PROCESSING_FAILED explain why eBay rejected it (statusMessage). MP4/MOV up to 150 MB; one video per listing.\n\n${MEDIA_ACCESS_NOTE}`,
     inputSchema: uploadVideoInputSchema.shape,
     outputSchema: zodToJsonSchema(videoOutputSchema, {
       name: 'UploadVideoResponse',
@@ -155,7 +155,7 @@ export const mediaEntries: ToolEntry[] = [
     annotations: { readOnlyHint: false },
     handler: (api, args) =>
       Effect.runPromise(
-        loadLocalMedia(args.path, 'video', getMediaAccessConfig()).pipe(
+        loadMediaReference(args.path, 'video', getMediaAccessConfig()).pipe(
           Effect.flatMap((file) =>
             api.media.uploadVideoFile({
               file,
@@ -181,7 +181,7 @@ export const mediaEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_attach_media_to_inventory_item',
-    description: `Upload local pictures and/or a video and attach them to an existing inventory item: reads the item, uploads every file in order, then rewrites only product.imageUrls and product.videoIds (appending by default, replacing with replaceExisting). Everything else on the item is preserved and no offer is published. If any upload fails the item is left untouched and the per-file results are returned in the error, unless allowPartial is true.\n\n${MEDIA_ACCESS_NOTE}`,
+    description: `Upload pictures and/or a video and attach them to an existing inventory item: reads the item, uploads every file in order, then rewrites only product.imageUrls and product.videoIds (appending by default, replacing with replaceExisting). Everything else on the item is preserved and no offer is published. If any upload fails the item is left untouched and the per-file results are returned in the error, unless allowPartial is true.\n\n${MEDIA_ACCESS_NOTE}`,
     inputSchema: attachMediaInputSchema.shape,
     outputSchema: zodToJsonSchema(attachMediaOutputSchema, {
       name: 'AttachMediaResponse',
@@ -192,8 +192,8 @@ export const mediaEntries: ToolEntry[] = [
       Effect.runPromise(
         Effect.gen(function* () {
           const access = getMediaAccessConfig();
-          const images = yield* loadLocalMediaList(args.imagePaths ?? [], 'image', access);
-          const videos = yield* loadLocalMediaList(args.videoPaths ?? [], 'video', access);
+          const images = yield* loadMediaReferenceList(args.imagePaths ?? [], 'image', access);
+          const videos = yield* loadMediaReferenceList(args.videoPaths ?? [], 'video', access);
           return yield* api.media.attachMediaToInventoryItem({
             sku: args.sku,
             images,

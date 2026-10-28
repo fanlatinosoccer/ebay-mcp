@@ -10,7 +10,7 @@ const documentMetadata = {
   languages: z.array(nonempty).min(1).describe('eBay LanguageEnum values, e.g. ENGLISH'),
 };
 const localPath = nonempty.describe(
-  'Absolute path or media:// reference inside the media allowlist',
+  'https:// URL, data:<mime>;base64,<payload> URI, absolute local path, or media://<relative-path> (local files must sit inside EBAY_MCP_MEDIA_DIRS / EBAY_MCP_MEDIA_ROOT)',
 );
 
 /** Input for creating an EPS image from a remotely hosted image. */

@@ -4,6 +4,7 @@ import { EbaySellerApi } from '@/api/ebaySellerApi.js';
 import { getEbayConfig, mcpConfig } from '@/config/environment.js';
 import { resolveToolGatingMode } from '@/config/toolFamilies.js';
 import { isReadOnlyModeEnabled, isReadOnlyTool } from '@/mcp/readOnlyFilter.js';
+import { applyToolListFilter, getToolListConfig } from '@/mcp/toolListFilter.js';
 import {
   createToolGatingController,
   DYNAMIC_MODE_INSTRUCTIONS,
@@ -181,6 +182,33 @@ export const createEbayMcpRuntime = (options: EbayMcpRuntimeOptions = {}): EbayM
   if (isReadOnlyModeEnabled()) {
     entries = entries.filter((entry) => isReadOnlyTool(entry.definition));
     serverLogger.info(`EBAY_READ_ONLY: filtered to ${entries.length} read-only tools`);
+  }
+
+  // Third gate: name-level allowlist/denylist, plus a hard refusal to start when
+  // EBAY_FORBID_TOKEN_TOOLS is set and any token-management tool would load.
+  {
+    const listConfig = getToolListConfig();
+    const before = entries.length;
+    const result = applyToolListFilter(entries, listConfig);
+    entries = result.entries;
+    if (listConfig.allow || listConfig.deny.size > 0) {
+      serverLogger.info(
+        `EBAY_TOOL_ALLOWLIST/DENYLIST: ${entries.length} of ${before} tools kept (allowlist ${listConfig.allow ? listConfig.allow.size : 'unset'}, denylist ${listConfig.deny.size})`,
+      );
+    }
+    if (result.unknownAllowed.length > 0) {
+      serverLogger.warn(
+        `EBAY_TOOL_ALLOWLIST names no loaded tool: ${result.unknownAllowed.join(', ')}`,
+      );
+    }
+    if (result.unknownDenied.length > 0) {
+      serverLogger.warn(
+        `EBAY_TOOL_DENYLIST names no loaded tool: ${result.unknownDenied.join(', ')}`,
+      );
+    }
+    if (listConfig.forbidTokenTools) {
+      serverLogger.info('EBAY_FORBID_TOKEN_TOOLS: verified no token-management tools are loaded');
+    }
   }
 
   const handles = new Map<string, RegisteredTool>();
