@@ -145,6 +145,49 @@ export class DotEnvCredentialStore implements CredentialStore {
 }
 
 /**
+ * Credential store that does not touch disk.
+ *
+ * Refreshed tokens stay on the OAuth client. `write` always succeeds, so a
+ * container with no writable `.env` cannot fail an eBay call during persist.
+ * Select it with `EBAY_CREDENTIAL_STORE=memory`.
+ */
+export class MemoryCredentialStore implements CredentialStore {
+  /**
+   * Discards credential updates.
+   *
+   * @param _updates - Environment variable names and values that would have been persisted.
+   * @returns An Effect that succeeds without writing.
+   *
+   * @example
+   * ```ts
+   * yield* new MemoryCredentialStore().write({ EBAY_USER_ACCESS_TOKEN: accessToken });
+   * ```
+   */
+  write(_updates: Record<string, string>): Effect.Effect<void, CredentialStoreError> {
+    return Effect.void;
+  }
+}
+
+/**
+ * Choose the credential store for this process.
+ *
+ * `EBAY_CREDENTIAL_STORE=memory` selects {@link MemoryCredentialStore}.
+ * Any other value, including an unset variable, keeps {@link DotEnvCredentialStore}.
+ *
+ * @param env - Environment to read `EBAY_CREDENTIAL_STORE` from.
+ * @returns The store implementation for the current process.
+ *
+ * @example
+ * ```ts
+ * const store = createCredentialStoreFromEnv({ EBAY_CREDENTIAL_STORE: 'memory' });
+ * ```
+ */
+export const createCredentialStoreFromEnv = (env: NodeJS.ProcessEnv): CredentialStore =>
+  env.EBAY_CREDENTIAL_STORE?.trim() === 'memory'
+    ? new MemoryCredentialStore()
+    : new DotEnvCredentialStore();
+
+/**
  * Redact token values for status and credential display output.
  *
  * @param token - Raw credential or token string.

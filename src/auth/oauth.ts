@@ -1,9 +1,9 @@
 import {
   createAppAccessTokenExpiry,
   createStoredUserTokens,
+  createCredentialStoreFromEnv,
   createStoredUserTokensFromResponse,
   CredentialStoreError,
-  DotEnvCredentialStore,
   isTokenExpired,
   type CredentialStore,
   type EbayUserTokenResponse,
@@ -20,6 +20,7 @@ import { getErrorMessage } from '@/utils/errors.js';
 import { describeHttpError, httpRequestEffect, type HttpRequestOptions } from '@/utils/http.js';
 import { authLogger } from '@/utils/logger.js';
 import { Data, Effect, Either } from 'effect';
+import process from 'node:process';
 
 /** OAuth operation names reported by {@link EbayOAuthError}. */
 type OAuthOperation =
@@ -86,7 +87,10 @@ export class EbayOAuthClient {
 
   constructor(
     private config: EbayConfig,
-    private credentialStore: CredentialStore = new DotEnvCredentialStore(),
+    private credentialStore: CredentialStore = createCredentialStoreFromEnv(
+      // biome-ignore lint/style/noProcessEnv: EBAY_CREDENTIAL_STORE selects the store once, at client construction.
+      process.env,
+    ),
   ) {}
 
   /**
