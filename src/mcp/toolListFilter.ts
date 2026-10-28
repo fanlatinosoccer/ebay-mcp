@@ -1,3 +1,5 @@
+import process from 'node:process';
+
 /**
  * Name-level tool gating for deployments that need a precise tool surface
  * (e.g. a write-enabled Azure container that must never expose credential tools).
@@ -10,7 +12,6 @@
  */
 
 /** Tools in the `token-management` family (credential and token handling). */
-import process from 'node:process';
 export const TOKEN_MANAGEMENT_TOOL_NAMES: ReadonlySet<string> = new Set([
   'ebay_get_oauth_url',
   'ebay_set_user_tokens',

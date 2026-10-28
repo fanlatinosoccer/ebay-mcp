@@ -140,6 +140,57 @@ function registerTool(
 }
 
 /**
+ * Resolves the tool catalogue after family, read-only, and name-level gates.
+ *
+ * Throws when `EBAY_FORBID_TOKEN_TOOLS` is set and a token-management tool would
+ * still be registered. The HTTP app calls this before it listens so a bad
+ * allowlist exits the process instead of failing the first session.
+ *
+ * @returns Tool entries that should be registered for this process.
+ * @example
+ * ```ts
+ * const entries = selectToolEntries();
+ * ```
+ */
+export const selectToolEntries = (): ToolEntry[] => {
+  const mode = resolveToolGatingMode();
+  const allEntries = getToolEntries();
+  const familyNames = mode.kind === 'static' ? toolNamesInFamilies(mode.families) : undefined;
+  let entries = familyNames
+    ? allEntries.filter((entry) => familyNames.has(entry.definition.name))
+    : allEntries;
+
+  if (isReadOnlyModeEnabled()) {
+    entries = entries.filter((entry) => isReadOnlyTool(entry.definition));
+    serverLogger.info(`EBAY_READ_ONLY: filtered to ${entries.length} read-only tools`);
+  }
+
+  const listConfig = getToolListConfig();
+  const before = entries.length;
+  const result = applyToolListFilter(entries, listConfig);
+  if (listConfig.allow || listConfig.deny.size > 0) {
+    const allowSize = listConfig.allow ? listConfig.allow.size : 'unset';
+    serverLogger.info(
+      `EBAY_TOOL_ALLOWLIST/DENYLIST: ${result.entries.length} of ${before} tools kept (allowlist ${allowSize}, denylist ${listConfig.deny.size})`,
+    );
+  }
+  if (result.unknownAllowed.length > 0) {
+    serverLogger.warn(
+      `EBAY_TOOL_ALLOWLIST names no loaded tool: ${result.unknownAllowed.join(', ')}`,
+    );
+  }
+  if (result.unknownDenied.length > 0) {
+    serverLogger.warn(
+      `EBAY_TOOL_DENYLIST names no loaded tool: ${result.unknownDenied.join(', ')}`,
+    );
+  }
+  if (listConfig.forbidTokenTools) {
+    serverLogger.info('EBAY_FORBID_TOKEN_TOOLS: verified no token-management tools are loaded');
+  }
+  return result.entries;
+};
+
+/**
  * Create an MCP server runtime and register all eBay tool handlers.
  *
  * @param options - Optional runtime dependencies and metadata overrides.
@@ -166,50 +217,10 @@ export const createEbayMcpRuntime = (options: EbayMcpRuntimeOptions = {}): EbayM
 
   const ui = createUiBridge(server, import.meta.url);
 
-  // Static mode registers only the named families; all and dynamic register the
-  // full catalogue (dynamic then disables it below, before the transport connects).
-  const allEntries = getToolEntries();
-  let entries =
-    mode.kind === 'static'
-      ? (() => {
-          const names = toolNamesInFamilies(mode.families);
-          return allEntries.filter((entry) => names.has(entry.definition.name));
-        })()
-      : allEntries;
-
-  // Optional second gate: drop any non-read-only tools after family selection so
-  // EBAY_READ_ONLY composes with all / static / dynamic modes.
-  if (isReadOnlyModeEnabled()) {
-    entries = entries.filter((entry) => isReadOnlyTool(entry.definition));
-    serverLogger.info(`EBAY_READ_ONLY: filtered to ${entries.length} read-only tools`);
-  }
-
-  // Third gate: name-level allowlist/denylist, plus a hard refusal to start when
-  // EBAY_FORBID_TOKEN_TOOLS is set and any token-management tool would load.
-  {
-    const listConfig = getToolListConfig();
-    const before = entries.length;
-    const result = applyToolListFilter(entries, listConfig);
-    entries = result.entries;
-    if (listConfig.allow || listConfig.deny.size > 0) {
-      serverLogger.info(
-        `EBAY_TOOL_ALLOWLIST/DENYLIST: ${entries.length} of ${before} tools kept (allowlist ${listConfig.allow ? listConfig.allow.size : 'unset'}, denylist ${listConfig.deny.size})`,
-      );
-    }
-    if (result.unknownAllowed.length > 0) {
-      serverLogger.warn(
-        `EBAY_TOOL_ALLOWLIST names no loaded tool: ${result.unknownAllowed.join(', ')}`,
-      );
-    }
-    if (result.unknownDenied.length > 0) {
-      serverLogger.warn(
-        `EBAY_TOOL_DENYLIST names no loaded tool: ${result.unknownDenied.join(', ')}`,
-      );
-    }
-    if (listConfig.forbidTokenTools) {
-      serverLogger.info('EBAY_FORBID_TOKEN_TOOLS: verified no token-management tools are loaded');
-    }
-  }
+  // Family selection, EBAY_READ_ONLY, then the name-level allow/deny list.
+  // Dynamic mode still registers the (possibly filtered) catalogue and disables
+  // it below, before the transport connects.
+  const entries = selectToolEntries();
 
   const handles = new Map<string, RegisteredTool>();
   for (const entry of entries) {

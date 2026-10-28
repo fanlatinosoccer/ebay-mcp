@@ -108,16 +108,21 @@ Applied after `EBAY_MCP_TOOLS` (families) and `EBAY_READ_ONLY`, in this order:
 | `EBAY_FORBID_TOKEN_TOOLS` | `true` | Startup fails if any `token-management` tool (`ebay_set_user_tokens`, `ebay_clear_tokens`, `ebay_display_credentials`, `ebay_refresh_access_token`, …) would load. |
 | `EBAY_MCP_REMOTE_MEDIA` | `true` (default) | Media tools accept `https://` URLs and `data:<mime>;base64,` URIs. Set `false` to allow local files only. |
 
-The startup log reports how many tools each gate kept.
+The startup log reports how many tools each gate kept. The HTTP server runs these
+gates while the app is created, before it listens, so `EBAY_FORBID_TOKEN_TOOLS`
+exits the process instead of failing the first session. The stdio entrypoint
+does the same before the transport connects.
 
 ### Media in a container
 
 `ebay_upload_images`, `ebay_upload_video`, `ebay_attach_media_to_inventory_item`,
 `ebay_upload_document` and `ebay_upload_post_order_document` accept, besides local
 paths, an `https://` URL (downloaded by the server; plain http, embedded
-credentials, localhost and private/link-local IP literals are refused and redirects
-are not followed) or a base64 `data:` URI. Both go through the same size limits and
-content-signature checks as local files, so no `EBAY_MCP_MEDIA_DIRS` is needed.
+credentials, localhost, and private or link-local addresses are refused, including
+hostnames that resolve to those addresses, and redirects are not followed) or a
+base64 `data:` URI. Both go through the same size limits and content-signature
+checks as local files, so no `EBAY_MCP_MEDIA_DIRS` is needed. Query strings are
+sent on the download and then dropped from the value returned to the caller.
 
 ### Write instance: PROPOSAL, pending Charlie's confirmation
 
@@ -148,9 +153,9 @@ Proposed write tools (used by FLS agents today):
 - `ebay_respond_to_best_offer`
 - `ebay_update_conversation`
 
-Proposed supporting read tools:
+Proposed supporting tools (reads, plus one image create the listing flow needs):
 
-- `ebay_create_image_from_url`
+- `ebay_create_image_from_url` (creates an EPS image; not a read)
 - `ebay_get_listing`
 - `ebay_get_active_listings`
 - `ebay_get_best_offers`

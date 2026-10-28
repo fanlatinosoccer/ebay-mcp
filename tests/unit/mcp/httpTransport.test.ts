@@ -1,5 +1,5 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createHttpMcpApp,
   createHttpTransportConfigFromEnv,
@@ -230,5 +230,20 @@ describe('HTTP MCP transport', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ status: 'healthy' });
+  });
+
+  it('refuses to build when a token tool would load and EBAY_FORBID_TOKEN_TOOLS is set', async () => {
+    vi.stubEnv('EBAY_FORBID_TOKEN_TOOLS', 'true');
+    vi.stubEnv('EBAY_TOOL_ALLOWLIST', '');
+    vi.stubEnv('EBAY_TOOL_DENYLIST', '');
+    vi.stubEnv('EBAY_READ_ONLY', 'false');
+    vi.stubEnv('EBAY_MCP_TOOLS', 'all');
+    try {
+      await expect(createHttpMcpApp(createTestConfig())).rejects.toThrow(
+        /token-management tools would load/,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

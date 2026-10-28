@@ -127,12 +127,15 @@ class EbayMcpServer {
   }
 }
 
-// Start the server
-const server = new EbayMcpServer();
+// Start the server. Construction applies the tool gates, so a forbidden token
+// tool fails here and the handler below exits before stdio transport starts.
 const started = await Effect.runPromise(
   Effect.either(
     Effect.tryPromise({
-      try: () => server.run(),
+      try: async () => {
+        const server = new EbayMcpServer();
+        await server.run();
+      },
       catch: (error) => error,
     }),
   ),

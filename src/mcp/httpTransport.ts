@@ -11,7 +11,7 @@ import { createBearerAuthMiddleware } from '@/auth/oauthMiddleware.js';
 import { createMetadataRouter, getProtectedResourceMetadataUrl } from '@/auth/oauthMetadata.js';
 import { TokenVerifier } from '@/auth/tokenVerifier.js';
 import { getDefaultScopes, getEbayConfig } from '@/config/environment.js';
-import { createEbayMcpRuntime } from '@/mcp/runtime.js';
+import { createEbayMcpRuntime, selectToolEntries } from '@/mcp/runtime.js';
 import type { EbayConfig } from '@/types/ebay.js';
 import { getErrorMessage } from '@/utils/errors.js';
 import { serverLogger } from '@/utils/logger.js';
@@ -296,6 +296,10 @@ function sendInvalidSession(response: Response): void {
 export const createHttpMcpApp = async (
   config: HttpTransportConfig,
 ): Promise<express.Application> => {
+  // Sessions build their own runtime later. Running the gates here means
+  // EBAY_FORBID_TOKEN_TOOLS aborts before listen(), not on the first initialize.
+  selectToolEntries();
+
   const app = express();
   const serverUrl = getHttpServerUrl(config);
   const ebayConfig = config.ebayConfig ?? getEbayConfig();

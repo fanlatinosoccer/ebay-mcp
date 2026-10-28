@@ -158,6 +158,10 @@ files through eBay's Media API and return what the Inventory API needs:
 | `ebay_get_video` | Re-checks a video that was still `PROCESSING` |
 | `ebay_attach_media_to_inventory_item` | Reads the item, uploads the files, and rewrites only `product.imageUrls` / `product.videoIds` — never publishes, and leaves the item untouched if any upload fails unless `allowPartial` is set |
 
+Each file may be an `https://` URL or a `data:<mime>;base64,...` URI (same size and
+signature checks; set `EBAY_MCP_REMOTE_MEDIA=false` for local files only). Plain http,
+credentials in the URL, localhost, and private or link-local addresses are refused,
+including hostnames that resolve to those addresses, and redirects are not followed.
 Local file access is off until you allow it: set `EBAY_MCP_MEDIA_DIRS` (path-delimited
 directories) and/or `EBAY_MCP_MEDIA_ROOT` (one directory that also resolves
 `media://<relative-path>` references). Symlinks are resolved before the containment
@@ -395,9 +399,13 @@ EBAY_USER_REFRESH_TOKEN=your_token  # for higher rate limits
 EBAY_MCP_UI=on                      # interactive MCP Apps views (beta); "off" forces plain JSON
 EBAY_MCP_TOOLS=all                  # tool exposure: "all", "dynamic", or a family list (see below)
 EBAY_READ_ONLY=false                # when true, only register read-only tools (gets/lists/searches)
+# EBAY_TOOL_ALLOWLIST=ebay_get_orders,ebay_revise_listing  # when set, only these tool names load
+# EBAY_TOOL_DENYLIST=ebay_issue_refund  # never load these names; deny wins over the allowlist
+# EBAY_FORBID_TOKEN_TOOLS=false       # true: refuse to start if any token-management tool would load
 # Local photo/video upload (optional — off until a directory is allowed):
 # EBAY_MCP_MEDIA_DIRS=/srv/media    # path-delimited directories the media and feed upload tools may read
 # EBAY_MCP_MEDIA_ROOT=/srv/media    # root for media://<relative-path> references (also allowed)
+# EBAY_MCP_REMOTE_MEDIA=true        # https URLs and data: base64 for media uploads; false = local files only
 # HTTP deploy (optional — Docker / Railway / self-hosted):
 # MCP_HOST=0.0.0.0                  # default is 0.0.0.0 when PORT is set
 # MCP_PORT=3000                     # preferred over platform PORT
@@ -628,7 +636,7 @@ You interact in natural language through your AI assistant. OAuth token manageme
 <details>
 <summary><strong>Can it upload my photos and videos?</strong></summary>
 
-Yes. `ebay_upload_images`, `ebay_upload_video`, and `ebay_attach_media_to_inventory_item` read local files (absolute paths or `media://` references) and upload them through eBay's Media API, returning EPS image URLs and video IDs for `product.imageUrls` / `product.videoIds`. `ebay_upload_feed_task_file` uploads local feed files the same way. Filesystem access is opt-in: nothing is readable until `EBAY_MCP_MEDIA_DIRS` or `EBAY_MCP_MEDIA_ROOT` names the directories. See [Photos and videos from local files](#photos-and-videos-from-local-files).
+Yes. `ebay_upload_images`, `ebay_upload_video`, and `ebay_attach_media_to_inventory_item` accept an `https://` URL, a base64 `data:` URI, or a local file (absolute path or `media://` reference) and upload it through eBay's Media API, returning EPS image URLs and video IDs for `product.imageUrls` / `product.videoIds`. Remote URLs reject plain http, embedded credentials, localhost, and private addresses. `ebay_upload_feed_task_file` uploads local feed files only. Local filesystem access is opt-in: nothing on disk is readable until `EBAY_MCP_MEDIA_DIRS` or `EBAY_MCP_MEDIA_ROOT` names the directories. See [Photos and videos from local files](#photos-and-videos-from-local-files).
 
 </details>
 
