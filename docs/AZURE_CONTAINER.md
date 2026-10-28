@@ -23,7 +23,7 @@ runs the full build so the interactive views are present.
 | Ingress | HTTP, target port `3000` |
 | Health probe | `GET /health` (no `Authorization` header) |
 | MCP endpoint | `POST` / `GET` / `DELETE` `/` |
-| Identity | System-assigned managed identity with Key Vault **Get** on the secrets below |
+| Identity | User-assigned managed identity `fls-ebay-mcp-id` with Key Vault **Get** on the secrets below |
 
 `/health` stays open so the probe can succeed. Every MCP request must send
 `Authorization: Bearer <MCP_AUTH_TOKEN>`. A missing or wrong token is `401`
@@ -51,7 +51,7 @@ image.
 
 | Container App secret name | Key Vault secret name | Env var |
 | --- | --- | --- |
-| `mcp-auth-token` | `mcp-auth-token` | `MCP_AUTH_TOKEN` |
+| `ebay-mcp-bearer` | `ebay-mcp-bearer` | `MCP_AUTH_TOKEN` |
 | `ebay-client-id` | `ebay-client-id` | `EBAY_CLIENT_ID` |
 | `ebay-client-secret` | `ebay-client-secret` | `EBAY_CLIENT_SECRET` |
 | `ebay-user-refresh-token` | `ebay-user-refresh-token` | `EBAY_USER_REFRESH_TOKEN` |
@@ -59,26 +59,26 @@ image.
 Example shape (names only, vault host is a placeholder):
 
 ```yaml
-identity: system
+identity: fls-ebay-mcp-id
 secrets:
-  - name: mcp-auth-token
-    keyVaultUrl: https://<vault-name>.vault.azure.net/secrets/mcp-auth-token
-    identity: system
+  - name: ebay-mcp-bearer
+    keyVaultUrl: https://<vault-name>.vault.azure.net/secrets/ebay-mcp-bearer
+    identity: fls-ebay-mcp-id
   - name: ebay-client-id
     keyVaultUrl: https://<vault-name>.vault.azure.net/secrets/ebay-client-id
-    identity: system
+    identity: fls-ebay-mcp-id
   - name: ebay-client-secret
     keyVaultUrl: https://<vault-name>.vault.azure.net/secrets/ebay-client-secret
-    identity: system
+    identity: fls-ebay-mcp-id
   - name: ebay-user-refresh-token
     keyVaultUrl: https://<vault-name>.vault.azure.net/secrets/ebay-user-refresh-token
-    identity: system
+    identity: fls-ebay-mcp-id
 containers:
   - name: ebay-mcp
     image: ebay-mcp:azure
     env:
       - name: MCP_AUTH_TOKEN
-        secretRef: mcp-auth-token
+        secretRef: ebay-mcp-bearer
       - name: OAUTH_ENABLED
         value: "false"
       - name: EBAY_READ_ONLY
