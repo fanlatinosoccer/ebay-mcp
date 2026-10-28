@@ -1,11 +1,16 @@
 node_modules
-.git
-.env
 build
-coverage
 dist
+coverage
+
+# Secrets, VCS metadata, and logs must never enter the image context.
+.env
+.env.*
+.git
 *.log
+logs/
 npm-debug.log
 pnpm-debug.log
+
 .vscode
 .DS_Store

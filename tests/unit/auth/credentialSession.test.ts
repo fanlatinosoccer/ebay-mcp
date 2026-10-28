@@ -12,9 +12,11 @@ import {
   createDefaultRefreshTokenExpiry,
   createStoredUserTokens,
   createStoredUserTokensFromResponse,
+  createCredentialStoreFromEnv,
   DotEnvCredentialStore,
   isTokenExpired,
   maskToken,
+  MemoryCredentialStore,
 } from '@/auth/credentialSession.js';
 import { CREDENTIAL_ENV_PATH, resolveCredentialEnvPath } from '@/config/credentialFile.js';
 
@@ -31,6 +33,19 @@ describe('credential session', () => {
   it('masks tokens without exposing full secrets', () => {
     expect(maskToken('short')).toBe('***');
     expect(maskToken('abcdef1234567890')).toBe('abcdef...567890');
+  });
+
+  it('keeps tokens in memory and does not write when EBAY_CREDENTIAL_STORE=memory', () => {
+    const memoryStore = createCredentialStoreFromEnv({ EBAY_CREDENTIAL_STORE: 'memory' });
+    expect(memoryStore).toBeInstanceOf(MemoryCredentialStore);
+    expect(() =>
+      Effect.runSync(memoryStore.write({ EBAY_USER_ACCESS_TOKEN: 'access-token' })),
+    ).not.toThrow();
+
+    expect(createCredentialStoreFromEnv({})).toBeInstanceOf(DotEnvCredentialStore);
+    expect(createCredentialStoreFromEnv({ EBAY_CREDENTIAL_STORE: 'dotenv' })).toBeInstanceOf(
+      DotEnvCredentialStore,
+    );
   });
 
   it('persists env updates through an adapter', () => {

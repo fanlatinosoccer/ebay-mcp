@@ -1,5 +1,5 @@
 import cors from 'cors';
-import { randomUUID } from 'crypto';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import express, { type Request, type RequestHandler, type Response } from 'express';
 import helmet from 'helmet';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -185,6 +185,28 @@ async function createMcpServer(serverUrl: string): Promise<McpServer> {
   return runtime.server;
 }
 
+/**
+ * Compare an Authorization header to `Bearer <expectedToken>` in constant time.
+ *
+ * `timingSafeEqual` throws when buffer lengths differ, so a length mismatch is
+ * rejected before the compare. Equal lengths always go through `timingSafeEqual`.
+ *
+ * @param authorizationHeader - Raw Authorization header, when the client sent one.
+ * @param expectedToken - Configured static bearer token (`MCP_AUTH_TOKEN`).
+ * @returns True only when the header is exactly `Bearer <expectedToken>`.
+ */
+const bearerAuthorizationMatches = (
+  authorizationHeader: string | undefined,
+  expectedToken: string,
+): boolean => {
+  const provided = Buffer.from(authorizationHeader ?? '');
+  const expected = Buffer.from(`Bearer ${expectedToken}`);
+  if (provided.length !== expected.length) {
+    return false;
+  }
+  return timingSafeEqual(provided, expected);
+};
+
 async function createAuthMiddleware(
   config: HttpTransportConfig,
   serverUrl: string,
@@ -193,10 +215,11 @@ async function createAuthMiddleware(
     const staticToken = config.staticAuthToken;
     serverLogger.info('Static bearer auth enabled via MCP_AUTH_TOKEN.');
     return (request, response, next) => {
-      if (request.headers.authorization === `Bearer ${staticToken}`) {
+      if (bearerAuthorizationMatches(request.headers.authorization, staticToken)) {
         next();
         return;
       }
+      response.setHeader('WWW-Authenticate', 'Bearer');
       response.status(401).json({
         error: 'unauthorized',
         error_description: 'Missing or invalid bearer token',

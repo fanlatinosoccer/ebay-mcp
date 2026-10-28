@@ -10,6 +10,7 @@ import { EbayOAuthClient, type EbayOAuthError } from '@/auth/oauth.js';
 import {
   CredentialStoreError,
   DotEnvCredentialStore,
+  MemoryCredentialStore,
   type CredentialStore,
 } from '@/auth/credentialSession.js';
 import type { EbayConfig } from '@/types/ebay.js';
@@ -178,6 +179,37 @@ describe('EbayOAuthClient', () => {
       await expect(Effect.runPromise(oauthClient.getAccessToken())).resolves.toBe(
         'refreshed_access_token',
       );
+    });
+
+    it('does not write .env when EBAY_CREDENTIAL_STORE=memory', async () => {
+      const previous = process.env.EBAY_CREDENTIAL_STORE;
+      process.env.EBAY_CREDENTIAL_STORE = 'memory';
+      const writeFileSyncMock = vi.mocked(fs.writeFileSync);
+      writeFileSyncMock.mockClear();
+
+      try {
+        const client = new EbayOAuthClient(config);
+        const futureExpiry = Date.now() + 7200 * 1000;
+        await setUserTokens(client, 'memory_access_token', 'memory_refresh_token', futureExpiry);
+
+        await expect(getAccessToken(client)).resolves.toBe('memory_access_token');
+        expect(writeFileSyncMock).not.toHaveBeenCalled();
+      } finally {
+        if (previous === undefined) {
+          delete process.env.EBAY_CREDENTIAL_STORE;
+        } else {
+          process.env.EBAY_CREDENTIAL_STORE = previous;
+        }
+      }
+    });
+
+    it('still returns the in-memory token when the memory store is injected directly', async () => {
+      const client = new EbayOAuthClient(config, new MemoryCredentialStore());
+      const futureExpiry = Date.now() + 7200 * 1000;
+      await setUserTokens(client, 'memory_access_token', 'memory_refresh_token', futureExpiry);
+
+      await expect(getAccessToken(client)).resolves.toBe('memory_access_token');
+      expect(client.hasUserTokens()).toBe(true);
     });
   });
 

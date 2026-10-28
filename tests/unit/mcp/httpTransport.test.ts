@@ -178,10 +178,27 @@ describe('HTTP MCP transport', () => {
     const response = await request(app).get('/');
 
     expect(response.status).toBe(401);
+    expect(response.headers['www-authenticate']).toBe('Bearer');
     expect(response.body).toEqual({
       error: 'unauthorized',
       error_description: 'Missing or invalid bearer token',
     });
+  });
+
+  it('rejects a non-matching static bearer, including a different length', async () => {
+    const app = await createHttpMcpApp(
+      createTestConfig({
+        staticAuthToken: 'deploy-secret',
+      }),
+    );
+
+    const differentLength = await request(app).get('/').set('Authorization', 'Bearer short');
+    const sameLength = await request(app).get('/').set('Authorization', 'Bearer deploy-secreX');
+
+    expect(differentLength.status).toBe(401);
+    expect(differentLength.headers['www-authenticate']).toBe('Bearer');
+    expect(sameLength.status).toBe(401);
+    expect(sameLength.headers['www-authenticate']).toBe('Bearer');
   });
 
   it('accepts protected routes with the static bearer token', async () => {
