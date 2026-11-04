@@ -495,6 +495,22 @@ describe('EbayApiClient Unit Tests', () => {
     const HOST = 'https://api.sandbox.ebay.com';
     const PATH = '/buy/browse/v1/item_summary/search';
 
+    it('sends an OAuth user token with the IAF scheme for Post-Order calls', async () => {
+      const scope = nock(HOST)
+        .matchHeader('authorization', 'IAF mock_access_token')
+        .matchHeader('x-ebay-c-marketplace-id', 'EBAY_US')
+        .get('/post-order/v2/return/search')
+        .reply(200, { total: 0 });
+
+      await apiClient.get('/post-order/v2/return/search', undefined, {
+        authorizationScheme: 'IAF',
+        headers: { 'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US' },
+      });
+
+      expect(mockOAuthClient.getAccessToken).toHaveBeenCalled();
+      scope.done();
+    });
+
     it('sends the user token by default, leaving the other tools unchanged', async () => {
       const scope = nock(HOST)
         .matchHeader('authorization', 'Bearer mock_access_token')

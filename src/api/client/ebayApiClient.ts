@@ -51,6 +51,13 @@ export interface EbayRequestConfig {
    * requiring a client-credentials application token (the Buy APIs).
    */
   tokenType?: EbayTokenType;
+  /**
+   * Scheme prefixed to the access token. Sell REST calls use `Bearer`.
+   * Post-Order calls that send an OAuth user access token use `IAF`
+   * (`Authorization: IAF <token>`). Auth'n'Auth tokens, which this client does
+   * not mint, would use `TOKEN` instead. Honored by every verb.
+   */
+  authorizationScheme?: 'Bearer' | 'IAF';
 }
 
 /** Successful eBay response with the transport metadata some endpoints put their result in. */
@@ -102,6 +109,8 @@ interface EbayRequestOptions {
   readonly maxBytes?: number;
   /** Token the request must authenticate with; omit for the default path. */
   readonly tokenType?: EbayTokenType;
+  /** Scheme prefixed to the access token. Defaults to Bearer. */
+  readonly authorizationScheme?: 'Bearer' | 'IAF';
 }
 
 /** Retry counters carried between recursive request attempts. */
@@ -354,7 +363,8 @@ export class EbayApiClient {
             }),
           );
         }
-        headers.Authorization = `Bearer ${token}`;
+        const scheme = options.authorizationScheme ?? 'Bearer';
+        headers.Authorization = `${scheme} ${token}`;
       }
 
       this.rateLimitTracker.recordRequest();
@@ -549,6 +559,7 @@ export class EbayApiClient {
       timeoutMs: config?.timeoutMs,
       maxBytes: config?.maxBytes,
       tokenType: config?.tokenType,
+      authorizationScheme: config?.authorizationScheme,
     });
   }
 
@@ -569,6 +580,7 @@ export class EbayApiClient {
       timeoutMs: config?.timeoutMs,
       maxBytes: config?.maxBytes,
       tokenType: config?.tokenType,
+      authorizationScheme: config?.authorizationScheme,
     });
   }
 
@@ -601,6 +613,7 @@ export class EbayApiClient {
       timeoutMs: config?.timeoutMs,
       maxBytes: config?.maxBytes,
       tokenType: config?.tokenType,
+      authorizationScheme: config?.authorizationScheme,
     });
   }
 
@@ -633,6 +646,7 @@ export class EbayApiClient {
       timeoutMs: config?.timeoutMs,
       maxBytes: config?.maxBytes,
       tokenType: config?.tokenType,
+      authorizationScheme: config?.authorizationScheme,
     });
   }
 
@@ -653,6 +667,7 @@ export class EbayApiClient {
       timeoutMs: config?.timeoutMs,
       maxBytes: config?.maxBytes,
       tokenType: config?.tokenType,
+      authorizationScheme: config?.authorizationScheme,
     });
   }
 
@@ -682,6 +697,7 @@ export class EbayApiClient {
       timeoutMs: config?.timeoutMs,
       maxBytes: config?.maxBytes,
       tokenType: config?.tokenType,
+      authorizationScheme: config?.authorizationScheme,
     });
   }
 

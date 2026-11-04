@@ -17,7 +17,8 @@ const FAMILY_BLURBS: Record<string, string> = {
     'Inventory items, offers, locations, inventory groups, bulk publish — the REST listing model',
   feed: 'Asynchronous order, inventory, and customer-service-metric feed tasks, schedules, and files',
   stores: 'eBay Store details, store categories, and category task status',
-  fulfillment: 'Orders, shipping fulfillments, refunds, and payment disputes',
+  fulfillment:
+    'Orders, shipping fulfillments, refunds, payment disputes, and read-only Post-Order returns, inquiries, and cases',
   logistics: 'Shipping quotes, label purchase, and shipments (limited-release Logistics API)',
   marketing: 'Promoted Listings campaigns, ads, promotions, and marketing reports',
   analytics: 'Seller standards, traffic reports, and customer-service metrics',

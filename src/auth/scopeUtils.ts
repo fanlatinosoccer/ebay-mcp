@@ -18,6 +18,20 @@ const FINANCES_EARNINGS_TOOLS = [
   'ebay_get_order_earnings_summary',
 ];
 
+/** Payment Dispute API tools. eBay requires sell.payment.dispute, served from apiz. */
+const PAYMENT_DISPUTE_SCOPE = 'https://api.ebay.com/oauth/api_scope/sell.payment.dispute';
+const PAYMENT_DISPUTE_TOOLS = [
+  'ebay_get_payment_dispute_summaries',
+  'ebay_get_payment_dispute',
+  'ebay_get_payment_dispute_activities',
+  'ebay_fetch_payment_dispute_evidence_content',
+  'ebay_accept_payment_dispute',
+  'ebay_contest_payment_dispute',
+  'ebay_add_payment_dispute_evidence',
+  'ebay_update_payment_dispute_evidence',
+  'ebay_upload_payment_dispute_evidence_file',
+];
+
 /** Logistics tools; the whole API is limited release behind its own scope. */
 const LOGISTICS_TOOLS = [
   'ebay_create_shipping_quote',
@@ -163,6 +177,11 @@ export const getRequiredScopesForTool = (toolName: string): ScopeRequirement | n
       LOGISTICS_TOOLS,
       LOGISTICS_SCOPE,
       'Requires the limited-release sell.logistics scope; eligible keysets add it to EBAY_OAUTH_SCOPES and repeat user consent',
+    ),
+    ...optionalConsent(
+      PAYMENT_DISPUTE_TOOLS,
+      PAYMENT_DISPUTE_SCOPE,
+      'Requires sell.payment.dispute. Payment dispute methods are served from the apiz host.',
     ),
 
     // Inventory Management Tools

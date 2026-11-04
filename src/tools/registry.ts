@@ -28,6 +28,8 @@ export class ToolRegistryError extends Data.TaggedError('ToolRegistryError')<{
 export interface ResolvedToolUi {
   archetype: ViewArchetype;
   resourceUri: string;
+  /** When true, the UI result also carries the handler JSON. */
+  includeHandlerJson?: boolean;
   map: (handlerOutput: unknown) => ViewModel;
 }
 

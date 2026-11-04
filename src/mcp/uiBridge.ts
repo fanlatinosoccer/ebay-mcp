@@ -137,10 +137,22 @@ const asStructuredContent = (view: ViewModel): Record<string, unknown> =>
  */
 export const buildUiToolResult = (ui: ResolvedToolUi, handlerOutput: unknown): CallToolResult => {
   const view = ui.map(handlerOutput);
+  const content: CallToolResult['content'] = [{ type: 'text', text: summarizeView(view) }];
+  const structuredContent = asStructuredContent(view);
+  const meta = { ui: { resourceUri: ui.resourceUri } };
+
+  if (!ui.includeHandlerJson) {
+    return { content, structuredContent, _meta: meta };
+  }
+
+  const record =
+    handlerOutput === undefined || handlerOutput === null ? { status: 'success' } : handlerOutput;
+  content.push({ type: 'text', text: JSON.stringify(record, null, 2) });
+
   return {
-    content: [{ type: 'text', text: summarizeView(view) }],
-    structuredContent: asStructuredContent(view),
-    _meta: { ui: { resourceUri: ui.resourceUri } },
+    content,
+    structuredContent: { ...structuredContent, record },
+    _meta: meta,
   };
 };
 

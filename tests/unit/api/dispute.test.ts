@@ -3,6 +3,9 @@ import { Effect } from 'effect';
 import { DisputeApi } from '@/api/order-management/dispute.js';
 import type { EbayApiClient } from '@/api/client/ebayApiClient.js';
 
+const APIZ = 'https://apiz.sandbox.ebay.com';
+const onApiz = { absolute: true };
+
 describe('DisputeApi', () => {
   let disputeApi: DisputeApi;
   let mockClient: EbayApiClient;
@@ -13,6 +16,7 @@ describe('DisputeApi', () => {
       post: vi.fn(),
       put: vi.fn(),
       delete: vi.fn(),
+      getConfig: vi.fn(() => ({ environment: 'sandbox' })),
     } as unknown as EbayApiClient;
 
     disputeApi = new DisputeApi(mockClient);
@@ -32,7 +36,9 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.get).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123`,
+        undefined,
+        onApiz,
       );
       expect(dispute).toEqual(mockDispute);
     });
@@ -61,7 +67,7 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.get).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/fetch_evidence_content',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/fetch_evidence_content`,
         {
           evidence_id: 'EVIDENCE-456',
           file_id: 'FILE-789',
@@ -69,6 +75,7 @@ describe('DisputeApi', () => {
         {
           headers: { Accept: 'application/octet-stream' },
           responseType: 'arraybuffer',
+          absolute: true,
         },
       );
       expect(evidenceContent).toEqual(mockBuffer);
@@ -88,7 +95,9 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.get).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/activity',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/activity`,
+        undefined,
+        onApiz,
       );
       expect(activities).toEqual(mockActivity);
     });
@@ -105,7 +114,11 @@ describe('DisputeApi', () => {
 
       const summaries = await Effect.runPromise(disputeApi.getPaymentDisputeSummaries());
 
-      expect(mockClient.get).toHaveBeenCalledWith('/sell/fulfillment/v1/payment_dispute_summary');
+      expect(mockClient.get).toHaveBeenCalledWith(
+        `${APIZ}/sell/fulfillment/v1/payment_dispute_summary`,
+        undefined,
+        onApiz,
+      );
       expect(summaries).toEqual(mockSummaries);
     });
 
@@ -129,15 +142,19 @@ describe('DisputeApi', () => {
         }),
       );
 
-      expect(mockClient.get).toHaveBeenCalledWith('/sell/fulfillment/v1/payment_dispute_summary', {
-        order_id: 'ORDER-123',
-        buyer_username: 'buyer-one',
-        open_date_from: '2025-01-01T00:00:00.000Z',
-        open_date_to: '2025-01-31T00:00:00.000Z',
-        payment_dispute_status: 'OPEN',
-        limit: '10',
-        offset: '0',
-      });
+      expect(mockClient.get).toHaveBeenCalledWith(
+        `${APIZ}/sell/fulfillment/v1/payment_dispute_summary`,
+        {
+          order_id: 'ORDER-123',
+          buyer_username: 'buyer-one',
+          open_date_from: '2025-01-01T00:00:00.000Z',
+          open_date_to: '2025-01-31T00:00:00.000Z',
+          payment_dispute_status: 'OPEN',
+          limit: '10',
+          offset: '0',
+        },
+        onApiz,
+      );
       expect(summaries).toEqual(mockSummaries);
     });
   });
@@ -151,7 +168,9 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/contest',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/contest`,
+        undefined,
+        onApiz,
       );
     });
 
@@ -174,8 +193,9 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/contest',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/contest`,
         contestRequest,
+        onApiz,
       );
     });
   });
@@ -187,7 +207,9 @@ describe('DisputeApi', () => {
       await Effect.runPromise(disputeApi.acceptPaymentDispute({ paymentDisputeId: 'DISPUTE-123' }));
 
       expect(mockClient.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/accept',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/accept`,
+        undefined,
+        onApiz,
       );
     });
 
@@ -210,8 +232,9 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/accept',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/accept`,
         acceptRequest,
+        onApiz,
       );
     });
   });
@@ -230,9 +253,9 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/upload_evidence_file',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/upload_evidence_file`,
         evidenceFile,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
+        { headers: { 'Content-Type': 'multipart/form-data' }, absolute: true },
       );
       expect(fileEvidence).toEqual(mockFileEvidence);
     });
@@ -257,8 +280,9 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/add_evidence',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/add_evidence`,
         evidenceRequest,
+        onApiz,
       );
       expect(addedEvidence).toEqual(mockResponse);
     });
@@ -278,8 +302,42 @@ describe('DisputeApi', () => {
       );
 
       expect(mockClient.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE-123/update_evidence',
+        `${APIZ}/sell/fulfillment/v1/payment_dispute/DISPUTE-123/update_evidence`,
         evidenceUpdate,
+        onApiz,
+      );
+    });
+  });
+
+  describe('apiz host', () => {
+    it('uses the production apiz host in production', async () => {
+      vi.mocked(mockClient.getConfig).mockReturnValue({
+        environment: 'production',
+      } as ReturnType<EbayApiClient['getConfig']>);
+      vi.mocked(mockClient.get).mockResolvedValue({ paymentDisputeSummaries: [] });
+
+      await Effect.runPromise(disputeApi.getPaymentDisputeSummaries());
+
+      expect(mockClient.get).toHaveBeenCalledWith(
+        'https://apiz.ebay.com/sell/fulfillment/v1/payment_dispute_summary',
+        undefined,
+        onApiz,
+      );
+    });
+
+    it('routes payment disputes through EBAY_MCP_API_BASE_URL when configured', async () => {
+      vi.mocked(mockClient.getConfig).mockReturnValue({
+        environment: 'production',
+        apiBaseUrl: 'https://proxy.example.com',
+      } as ReturnType<EbayApiClient['getConfig']>);
+      vi.mocked(mockClient.get).mockResolvedValue({ paymentDisputeId: 'DISPUTE-123' });
+
+      await Effect.runPromise(disputeApi.getPaymentDispute({ paymentDisputeId: 'DISPUTE-123' }));
+
+      expect(mockClient.get).toHaveBeenCalledWith(
+        'https://proxy.example.com/sell/fulfillment/v1/payment_dispute/DISPUTE-123',
+        undefined,
+        onApiz,
       );
     });
   });

@@ -36,11 +36,19 @@ export class ToolInputError extends Data.TaggedError('ToolInputError')<{
  *
  * @typeParam Result - The handler's awaited return type, supplied by {@link ToolSpec}.
  */
-export type ToolUiSpec<Result> =
+export type ToolUiSpec<Result> = (
   | { archetype: 'table'; map: (handlerOutput: Result) => TableViewModel }
   | { archetype: 'card'; map: (handlerOutput: Result) => CardViewModel }
   | { archetype: 'chart'; map: (handlerOutput: Result) => ChartViewModel }
-  | { archetype: 'stat'; map: (handlerOutput: Result) => StatViewModel };
+  | { archetype: 'stat'; map: (handlerOutput: Result) => StatViewModel }
+) & {
+  /**
+   * Also return the handler JSON. The card stays in `structuredContent` for
+   * MCP Apps; the raw record is added as text and as `structuredContent.record`
+   * so hosts that only surface the visual summary still expose the fields.
+   */
+  includeHandlerJson?: boolean;
+};
 
 /**
  * Specification for a single MCP tool, co-locating its public definition with a
@@ -91,6 +99,7 @@ function resolveToolUi<Result>(ui: ToolUiSpec<Result>): ResolvedToolUi {
   return {
     archetype: ui.archetype,
     resourceUri: uiArchetypes[ui.archetype].uri,
+    includeHandlerJson: ui.includeHandlerJson,
     map: (handlerOutput: unknown): ViewModel => ui.map(handlerOutput as Result),
   };
 }

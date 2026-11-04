@@ -37,10 +37,14 @@ describe('Other APIs', () => {
 
       await Effect.runPromise(api.getPaymentDisputeSummaries({ orderId: 'ORDER123', limit: 10 }));
 
-      expect(client.get).toHaveBeenCalledWith('/sell/fulfillment/v1/payment_dispute_summary', {
-        order_id: 'ORDER123',
-        limit: '10',
-      });
+      expect(client.get).toHaveBeenCalledWith(
+        'https://apiz.sandbox.ebay.com/sell/fulfillment/v1/payment_dispute_summary',
+        {
+          order_id: 'ORDER123',
+          limit: '10',
+        },
+        { absolute: true },
+      );
     });
 
     it('get payment dispute by ID', async () => {
@@ -49,7 +53,11 @@ describe('Other APIs', () => {
 
       await Effect.runPromise(api.getPaymentDispute({ paymentDisputeId: 'DISPUTE123' }));
 
-      expect(client.get).toHaveBeenCalledWith('/sell/fulfillment/v1/payment_dispute/DISPUTE123');
+      expect(client.get).toHaveBeenCalledWith(
+        'https://apiz.sandbox.ebay.com/sell/fulfillment/v1/payment_dispute/DISPUTE123',
+        undefined,
+        { absolute: true },
+      );
     });
 
     it('contest payment dispute', async () => {
@@ -60,8 +68,9 @@ describe('Other APIs', () => {
       );
 
       expect(client.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE123/contest',
+        'https://apiz.sandbox.ebay.com/sell/fulfillment/v1/payment_dispute/DISPUTE123/contest',
         { returnAddress: {} },
+        { absolute: true },
       );
     });
 
@@ -73,8 +82,9 @@ describe('Other APIs', () => {
       );
 
       expect(client.post).toHaveBeenCalledWith(
-        '/sell/fulfillment/v1/payment_dispute/DISPUTE123/accept',
+        'https://apiz.sandbox.ebay.com/sell/fulfillment/v1/payment_dispute/DISPUTE123/accept',
         { returnAddress: {} },
+        { absolute: true },
       );
     });
   });
