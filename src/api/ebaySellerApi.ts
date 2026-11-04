@@ -19,6 +19,7 @@ import { MarketingApi } from '@/api/marketing-and-promotions/marketing.js';
 import { RecommendationApi } from '@/api/marketing-and-promotions/recommendation.js';
 import { DisputeApi } from '@/api/order-management/dispute.js';
 import { FulfillmentApi } from '@/api/order-management/fulfillment.js';
+import { PostOrderApi } from '@/api/order-management/postOrder.js';
 import { LogisticsApi } from '@/api/order-management/logistics.js';
 import { ComplianceApi } from '@/api/other/compliance.js';
 import { EDeliveryApi } from '@/api/other/edelivery.js';
@@ -51,6 +52,7 @@ export class EbaySellerApi {
   public fulfillment: FulfillmentApi;
   public logistics: LogisticsApi;
   public dispute: DisputeApi;
+  public postOrder: PostOrderApi;
   public marketing: MarketingApi;
   public recommendation: RecommendationApi;
   public analytics: AnalyticsApi;
@@ -86,6 +88,7 @@ export class EbaySellerApi {
     this.fulfillment = new FulfillmentApi(this.client);
     this.logistics = new LogisticsApi(this.client);
     this.dispute = new DisputeApi(this.client);
+    this.postOrder = new PostOrderApi(this.client);
     this.marketing = new MarketingApi(this.client);
     this.recommendation = new RecommendationApi(this.client);
     this.analytics = new AnalyticsApi(this.client);

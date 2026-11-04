@@ -39,10 +39,28 @@ import {
   uploadEvidenceFileInputSchema,
   updateEvidenceInputSchema,
 } from '@/schemas/fulfillment/orders.js';
+import {
+  getPostOrderCaseInputSchema,
+  getPostOrderInquiryInputSchema,
+  getPostOrderReturnInputSchema,
+  searchPostOrderCasesInputSchema,
+  searchPostOrderInquiriesInputSchema,
+  searchPostOrderReturnsInputSchema,
+} from '@/schemas/fulfillment/postOrder.js';
 import { Effect } from 'effect';
 
 /** Default number of recent orders scanned by cancellation/refund helpers. */
 const DEFAULT_ORDER_SCAN_LIMIT = 50;
+
+/**
+ * Shared auth note for Post-Order reads. OAuth user tokens use the IAF prefix;
+ * TOKEN is the legacy Auth'n'Auth prefix and is not what this server sends.
+ */
+const POST_ORDER_AUTH_NOTE =
+  'Host: https://api.ebay.com/post-order/v2 (sandbox host https://api.sandbox.ebay.com). Authorization: IAF <user access token> (not Bearer). X-EBAY-C-MARKETPLACE-ID defaults to EBAY_MARKETPLACE_ID or EBAY_US. Post-Order does not use a Sell OAuth scope; it requires a user access token from the authorization code grant. Application tokens are rejected. eBay documents these methods as production-only.';
+
+const PAYMENT_DISPUTE_SCOPE_NOTE =
+  'Calls the apiz host (https://apiz.ebay.com, sandbox https://apiz.sandbox.ebay.com), not api.ebay.com.\n\nRequired OAuth Scope: sell.payment.dispute\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.payment.dispute';
 
 /** Fulfillment API tools for orders, shipping fulfillments, refunds, and payment disputes. */
 export const fulfillmentEntries: ToolEntry[] = [
@@ -68,7 +86,7 @@ export const fulfillmentEntries: ToolEntry[] = [
       $refStrategy: 'none',
     }) as OutputArgs,
     handler: (api, args) => Effect.runPromise(api.fulfillment.getOrder(args)),
-    ui: { archetype: 'card', map: mapOrderToCard },
+    ui: { archetype: 'card', map: mapOrderToCard, includeHandlerJson: true },
   }),
   defineTool({
     name: 'ebay_create_shipping_fulfillment',
@@ -170,8 +188,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   // Payment Dispute Tools
   defineTool({
     name: 'ebay_get_payment_dispute_summaries',
-    description:
-      'Get summaries of all payment disputes. Use filters to narrow results by dispute status, buyer username, or order ID.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Get summaries of all payment disputes. Use filters to narrow results by dispute status, buyer username, or order ID.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: getPaymentDisputeSummariesInputSchema.shape,
     outputSchema: zodToJsonSchema(getPaymentDisputeSummariesOutputSchema, {
       name: 'GetPaymentDisputeSummariesResponse',
@@ -182,8 +199,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_get_payment_dispute',
-    description:
-      'Get detailed information about a specific payment dispute.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Get detailed information about a specific payment dispute.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: getPaymentDisputeInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -201,8 +217,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_get_payment_dispute_activities',
-    description:
-      'Get activity history for a payment dispute, including all actions taken by buyer, seller, and eBay.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Get activity history for a payment dispute, including all actions taken by buyer, seller, and eBay.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: getActivitiesInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -215,8 +230,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_accept_payment_dispute',
-    description:
-      'Accept a payment dispute and allow eBay to refund the buyer. Use this when you agree with the buyer claim.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Accept a payment dispute and allow eBay to refund the buyer. Use this when you agree with the buyer claim.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: acceptPaymentDisputeInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -227,8 +241,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_contest_payment_dispute',
-    description:
-      'Contest a payment dispute by providing evidence. Use this when you disagree with the buyer claim and want to provide proof.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Contest a payment dispute by providing evidence. Use this when you disagree with the buyer claim and want to provide proof.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: contestPaymentDisputeInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -239,8 +252,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_add_payment_dispute_evidence',
-    description:
-      'Add evidence to support your case in a payment dispute. Provide evidence files and supporting information.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Add evidence to support your case in a payment dispute. Provide evidence files and supporting information.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: addEvidenceInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -253,8 +265,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_update_payment_dispute_evidence',
-    description:
-      'Update existing evidence in a payment dispute.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Update existing evidence in a payment dispute.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: updateEvidenceInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -265,8 +276,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_upload_payment_dispute_evidence_file',
-    description:
-      'Upload a file as evidence for a payment dispute (e.g., shipping receipt, photos). Returns a file ID to use with add_evidence.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Upload a file as evidence for a payment dispute (e.g., shipping receipt, photos). Returns a file ID to use with add_evidence.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: uploadEvidenceFileInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -279,8 +289,7 @@ export const fulfillmentEntries: ToolEntry[] = [
   }),
   defineTool({
     name: 'ebay_fetch_payment_dispute_evidence_content',
-    description:
-      'Download evidence file content from a payment dispute.\n\nRequired OAuth Scope: sell.fulfillment\nMinimum Scope: https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+    description: `Download evidence file content from a payment dispute.\n\n${PAYMENT_DISPUTE_SCOPE_NOTE}`,
     inputSchema: fetchEvidenceContentInputSchema.shape,
     outputSchema: {
       type: 'object',
@@ -291,5 +300,47 @@ export const fulfillmentEntries: ToolEntry[] = [
       description: 'File content and content type',
     },
     handler: (api, args) => Effect.runPromise(api.dispute.fetchEvidenceContent(args)),
+  }),
+  defineTool({
+    name: 'ebay_search_post_order_returns',
+    description: `Search Post-Order return requests. The response includes return state and response deadlines (sellerResponseDue, buyerResponseDue, timeoutDate). ${POST_ORDER_AUTH_NOTE}`,
+    inputSchema: searchPostOrderReturnsInputSchema.shape,
+    annotations: { readOnlyHint: true },
+    handler: (api, args) => Effect.runPromise(api.postOrder.searchReturns(args)),
+  }),
+  defineTool({
+    name: 'ebay_get_post_order_return',
+    description: `Get one Post-Order return, including state and response deadlines (sellerResponseDue.respondByDate, buyerResponseDue, timeoutDate, escalation end times). ${POST_ORDER_AUTH_NOTE}`,
+    inputSchema: getPostOrderReturnInputSchema.shape,
+    annotations: { readOnlyHint: true },
+    handler: (api, args) => Effect.runPromise(api.postOrder.getReturn(args)),
+  }),
+  defineTool({
+    name: 'ebay_search_post_order_inquiries',
+    description: `Search Post-Order INR and SNAD inquiries, including inquiry status. ${POST_ORDER_AUTH_NOTE}`,
+    inputSchema: searchPostOrderInquiriesInputSchema.shape,
+    annotations: { readOnlyHint: true },
+    handler: (api, args) => Effect.runPromise(api.postOrder.searchInquiries(args)),
+  }),
+  defineTool({
+    name: 'ebay_get_post_order_inquiry',
+    description: `Get one Post-Order inquiry (INR or SNAD), including status and response deadlines. ${POST_ORDER_AUTH_NOTE}`,
+    inputSchema: getPostOrderInquiryInputSchema.shape,
+    annotations: { readOnlyHint: true },
+    handler: (api, args) => Effect.runPromise(api.postOrder.getInquiry(args)),
+  }),
+  defineTool({
+    name: 'ebay_search_post_order_cases',
+    description: `Search Post-Order cases escalated from returns or INR inquiries, including case status. ${POST_ORDER_AUTH_NOTE}`,
+    inputSchema: searchPostOrderCasesInputSchema.shape,
+    annotations: { readOnlyHint: true },
+    handler: (api, args) => Effect.runPromise(api.postOrder.searchCases(args)),
+  }),
+  defineTool({
+    name: 'ebay_get_post_order_case',
+    description: `Get one Post-Order case, including case status and history. ${POST_ORDER_AUTH_NOTE}`,
+    inputSchema: getPostOrderCaseInputSchema.shape,
+    annotations: { readOnlyHint: true },
+    handler: (api, args) => Effect.runPromise(api.postOrder.getCase(args)),
   }),
 ];

@@ -154,6 +154,32 @@ describe('buildUiToolResult', () => {
     expect(uiToolResult.structuredContent).toMatchObject({ archetype: 'card', title: 'Order 1' });
     expect(uiToolResult._meta).toEqual({ ui: { resourceUri: 'ui://ebay/card.html' } });
   });
+
+  it('also returns the handler JSON when the tool asks for it', () => {
+    const ui: ResolvedToolUi = {
+      archetype: 'card',
+      resourceUri: 'ui://ebay/card.html',
+      includeHandlerJson: true,
+      map: () => ({
+        archetype: 'card',
+        title: 'Order 1',
+        sections: [{ fields: [{ label: 'Total', value: '1.00 USD' }] }],
+      }),
+    };
+
+    const order = { orderId: '1', orderPaymentStatus: 'PAID' };
+    const uiToolResult = buildUiToolResult(ui, order);
+
+    expect(uiToolResult.content).toEqual([
+      { type: 'text', text: 'Order 1: 1 field. Rendered as an interactive detail card.' },
+      { type: 'text', text: JSON.stringify(order, null, 2) },
+    ]);
+    expect(uiToolResult.structuredContent).toMatchObject({
+      archetype: 'card',
+      title: 'Order 1',
+      record: order,
+    });
+  });
 });
 
 describe('repo-root resolution', () => {

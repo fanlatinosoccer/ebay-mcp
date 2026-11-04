@@ -1,16 +1,16 @@
-import type { EbayApiClient } from '@/api/client/ebayApiClient.js';
+import type { EbayApiClient, EbayRequestConfig } from '@/api/client/ebayApiClient.js';
 import {
   buildEndpointParams,
-  type EbayApiError,
+  EbayApiError,
   EndpointInputError,
   optionalNonNegativeNumberEffect,
   optionalPositiveNumberEffect,
   optionalStringEffect,
-  requestGetEffect,
-  requestPostEffect,
+  type QueryParams,
   requireObjectEffect,
   requireStringEffect,
 } from '@/api/shared/request.js';
+import { getIdentityBaseUrl } from '@/config/environment.js';
 import type {
   components,
   operations,
@@ -200,11 +200,47 @@ const requireUploadEvidenceFileBodyEffect = (
   );
 };
 
-/** eBay Fulfillment payment dispute endpoints. */
+/**
+ * eBay Fulfillment payment dispute endpoints.
+ *
+ * Every `payment_dispute` method is served from the apiz host
+ * (`https://apiz.ebay.com`, sandbox `https://apiz.sandbox.ebay.com`), not
+ * `api.ebay.com`. `EBAY_MCP_API_BASE_URL` still overrides that host.
+ *
+ * @see https://developer.ebay.com/api-docs/sell/fulfillment/resources/payment_dispute/methods/getPaymentDisputeSummaries
+ */
 export class DisputeApi {
   private readonly basePath = '/sell/fulfillment/v1';
 
   public constructor(private readonly client: EbayApiClient) {}
+
+  /**
+   * Sends a payment-dispute call to the apiz host. The error keeps the relative
+   * eBay path so callers do not have to parse the absolute URL.
+   */
+  private readonly requestOnApiz = <T>(
+    method: 'GET' | 'POST',
+    path: string,
+    payload?: QueryParams | unknown,
+    config?: Omit<EbayRequestConfig, 'absolute'>,
+  ): Effect.Effect<T, EbayApiError> => {
+    const client = this.client;
+
+    return Effect.tryPromise({
+      try: () => {
+        const { environment, apiBaseUrl } = client.getConfig();
+        const url = `${getIdentityBaseUrl(environment, apiBaseUrl)}${path}`;
+        const requestConfig: EbayRequestConfig = { ...config, absolute: true };
+
+        if (method === 'GET') {
+          return client.get<T>(url, payload as QueryParams | undefined, requestConfig);
+        }
+
+        return client.post<T>(url, payload, requestConfig);
+      },
+      catch: (cause) => new EbayApiError({ method, path, cause }),
+    });
+  };
 
   /**
    * Retrieves one payment dispute.
@@ -231,7 +267,7 @@ export class DisputeApi {
       );
       const path = `${this.basePath}/payment_dispute/${paymentDisputeId}`;
 
-      return yield* requestGetEffect<PaymentDispute>(this.client, path);
+      return yield* this.requestOnApiz<PaymentDispute>('GET', path);
     });
 
   /**
@@ -269,7 +305,7 @@ export class DisputeApi {
         fileId: { wireName: 'file_id', value: fileId },
       });
 
-      return yield* requestGetEffect<FetchEvidenceContentResponse>(this.client, path, params, {
+      return yield* this.requestOnApiz<FetchEvidenceContentResponse>('GET', path, params, {
         headers: { Accept: 'application/octet-stream' },
         responseType: 'arraybuffer',
       });
@@ -300,7 +336,7 @@ export class DisputeApi {
       );
       const path = `${this.basePath}/payment_dispute/${paymentDisputeId}/activity`;
 
-      return yield* requestGetEffect<PaymentDisputeActivityHistory>(this.client, path);
+      return yield* this.requestOnApiz<PaymentDisputeActivityHistory>('GET', path);
     });
 
   /**
@@ -346,7 +382,7 @@ export class DisputeApi {
         offset: { wireName: 'offset', value: offset === undefined ? undefined : String(offset) },
       });
 
-      return yield* requestGetEffect<DisputeSummaryResponse>(this.client, path, params);
+      return yield* this.requestOnApiz<DisputeSummaryResponse>('GET', path, params);
     });
 
   /**
@@ -377,7 +413,7 @@ export class DisputeApi {
       );
       const path = `${this.basePath}/payment_dispute/${paymentDisputeId}/accept`;
 
-      return yield* requestPostEffect<void>(this.client, path, input.body);
+      return yield* this.requestOnApiz<void>('POST', path, input.body);
     });
 
   /**
@@ -408,7 +444,7 @@ export class DisputeApi {
       );
       const path = `${this.basePath}/payment_dispute/${paymentDisputeId}/contest`;
 
-      return yield* requestPostEffect<void>(this.client, path, input.body);
+      return yield* this.requestOnApiz<void>('POST', path, input.body);
     });
 
   /**
@@ -440,7 +476,7 @@ export class DisputeApi {
       const evidenceFile = yield* requireUploadEvidenceFileBodyEffect(input.body);
       const path = `${this.basePath}/payment_dispute/${paymentDisputeId}/upload_evidence_file`;
 
-      return yield* requestPostEffect<FileEvidence>(this.client, path, evidenceFile, {
+      return yield* this.requestOnApiz<FileEvidence>('POST', path, evidenceFile, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
     });
@@ -477,8 +513,8 @@ export class DisputeApi {
       );
       const path = `${this.basePath}/payment_dispute/${paymentDisputeId}/add_evidence`;
 
-      return yield* requestPostEffect<AddEvidencePaymentDisputeResponse>(
-        this.client,
+      return yield* this.requestOnApiz<AddEvidencePaymentDisputeResponse>(
+        'POST',
         path,
         addEvidenceRequest,
       );
@@ -516,10 +552,6 @@ export class DisputeApi {
       );
       const path = `${this.basePath}/payment_dispute/${paymentDisputeId}/update_evidence`;
 
-      return yield* requestPostEffect<UpdateEvidenceResponse>(
-        this.client,
-        path,
-        updateEvidenceRequest,
-      );
+      return yield* this.requestOnApiz<UpdateEvidenceResponse>('POST', path, updateEvidenceRequest);
     });
 }
