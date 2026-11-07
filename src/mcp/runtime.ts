@@ -12,6 +12,11 @@ import {
 } from '@/mcp/toolGating.js';
 import { buildUiToolResult, createUiBridge, type UiBridge } from '@/mcp/uiBridge.js';
 import { getToolEntries, type ToolEntry } from '@/tools/registry.js';
+import {
+  formatSellerOfferToolFailure,
+  sanitizeSellerOfferRequest,
+  SELLER_OFFER_TOOL_NAME,
+} from '@/utils/communication/sellerOfferFailureDiagnostic.js';
 import { getEbayErrorDetails } from '@/utils/errors.js';
 import { serverLogger, toolLogger } from '@/utils/logger.js';
 import { Effect } from 'effect';
@@ -79,6 +84,36 @@ function formatToolFailure(error: unknown) {
   };
 }
 
+const loggedToolArgs = (toolName: string, args: ToolArgs): unknown =>
+  toolName === SELLER_OFFER_TOOL_NAME ? sanitizeSellerOfferRequest(args) : args;
+
+/**
+ * Seller-offer failures keep a sanitized diagnostic. Every other tool keeps the
+ * shared message/status/details shape.
+ */
+const logAndFormatToolFailure = (
+  toolName: string,
+  error: unknown,
+  args: ToolArgs,
+  logToolExecution: boolean,
+) => {
+  if (toolName === SELLER_OFFER_TOOL_NAME) {
+    const failure = formatSellerOfferToolFailure(error, args);
+    if (logToolExecution) {
+      toolLogger.error(`Tool ${toolName} failed`, failure.log);
+    }
+    return failure.result;
+  }
+
+  if (logToolExecution) {
+    toolLogger.error(`Tool ${toolName} failed`, {
+      error: getEbayErrorDetails(error).message,
+    });
+  }
+
+  return formatToolFailure(error);
+};
+
 function registerTool(
   server: McpServer,
   api: EbaySellerApi,
@@ -99,7 +134,9 @@ function registerTool(
     },
     async (args: ToolArgs) => {
       if (logToolExecution) {
-        toolLogger.debug(`Executing tool: ${definition.name}`, { args });
+        toolLogger.debug(`Executing tool: ${definition.name}`, {
+          args: loggedToolArgs(definition.name, args),
+        });
       }
 
       return await Effect.runPromise(
@@ -120,15 +157,9 @@ function registerTool(
               ? buildUiToolResult(entry.ui, handlerOutput)
               : formatToolSuccess(handlerOutput);
           }),
-          Effect.catchAll((error) => {
-            if (logToolExecution) {
-              toolLogger.error(`Tool ${definition.name} failed`, {
-                error: getEbayErrorDetails(error).message,
-              });
-            }
-
-            return Effect.succeed(formatToolFailure(error));
-          }),
+          Effect.catchAll((error) =>
+            Effect.succeed(logAndFormatToolFailure(definition.name, error, args, logToolExecution)),
+          ),
         ),
       );
     },

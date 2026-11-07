@@ -8,6 +8,12 @@ import { getBaseUrl } from '@/config/environment.js';
 import type { EbayConfig } from '@/types/ebay.js';
 import { getErrorMessage } from '@/utils/errors.js';
 import {
+  buildSellerOfferFailureDiagnostic,
+  isSellerOfferRequestUrl,
+  sanitizeSellerOfferRequest,
+  scrubSellerOfferFailureText,
+} from '@/utils/communication/sellerOfferFailureDiagnostic.js';
+import {
   type HttpResponse,
   httpRequestEffect,
   isHttpError,
@@ -223,6 +229,22 @@ export class EbayApiClient {
   }
 
   /**
+   * Seller-offer status text is scrubbed. Other endpoints keep the raw eBay detail
+   * so existing error messages, including the embedded response body, stay stable.
+   */
+  private sellerOfferSafeDetail(
+    url: string,
+    errorBody: unknown,
+    requestBody: unknown,
+    fallback = 'Invalid access token',
+  ): string {
+    const detail = this.ebayErrorDetail(errorBody) ?? fallback;
+    return isSellerOfferRequestUrl(url)
+      ? scrubSellerOfferFailureText(detail, errorBody, requestBody)
+      : detail;
+  }
+
+  /**
    * Pull the most descriptive eBay error string from a response body when present.
    * eBay REST errors arrive as `{ errors: [{ message, longMessage }] }`.
    */
@@ -368,12 +390,12 @@ export class EbayApiClient {
       }
 
       this.rateLimitTracker.recordRequest();
-      logRequest(
-        method,
-        url,
-        options.params,
-        isBinaryBody(options.data) ? '[binary body]' : options.data,
-      );
+      const loggedBody = isBinaryBody(options.data)
+        ? '[binary body]'
+        : isSellerOfferRequestUrl(url)
+          ? sanitizeSellerOfferRequest(options.data, options.headers)
+          : options.data;
+      logRequest(method, url, options.params, loggedBody);
 
       return yield* httpRequestEffect<T>({
         method,
@@ -426,6 +448,11 @@ export class EbayApiClient {
 
     if (error.status == null) {
       apiLogger.error('No response received from server', { url });
+    } else if (isSellerOfferRequestUrl(url)) {
+      apiLogger.error(`Error Response: ${error.status} ${error.statusText ?? ''}`.trim(), {
+        url,
+        diagnostic: buildSellerOfferFailureDiagnostic(error, options.data, options.headers),
+      });
     } else {
       logErrorResponse(error.status, error.statusText, url, error.data);
     }
@@ -442,7 +469,7 @@ export class EbayApiClient {
             const reason = getErrorMessage(refreshError);
             apiLogger.error('Failed to refresh token', { error: reason });
 
-            const detail = this.ebayErrorDetail(error.data) ?? 'Invalid access token';
+            const detail = this.sellerOfferSafeDetail(url, error.data, options.data);
             return Effect.fail(
               clientRequestError({
                 kind: 'tokenRefresh',
@@ -466,7 +493,7 @@ export class EbayApiClient {
         );
       }
 
-      const detail = this.ebayErrorDetail(error.data) ?? 'Invalid access token';
+      const detail = this.sellerOfferSafeDetail(url, error.data, options.data);
       return Effect.fail(
         clientRequestError({
           kind: 'tokenRefresh',
@@ -520,13 +547,17 @@ export class EbayApiClient {
     }
 
     if (error.status != null) {
+      const detail = this.sellerOfferSafeDetail(url, error.data, options.data, error.message);
+      const message = isSellerOfferRequestUrl(url)
+        ? `eBay API Error: ${detail}`
+        : `eBay API Error: ${detail}${this.ebayErrorBody(error.data)}`;
       return Effect.fail(
         clientRequestError({
           kind: 'httpStatus',
           method,
           url,
           status: error.status,
-          message: `eBay API Error: ${this.ebayErrorDetail(error.data) ?? error.message}${this.ebayErrorBody(error.data)}`,
+          message,
           cause: error,
         }),
       );

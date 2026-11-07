@@ -627,4 +627,88 @@ describe('EbayApiClient Unit Tests', () => {
       scope.done();
     });
   });
+
+  describe('seller-offer failure diagnostics', () => {
+    const sellerMessage = 'Limited offer for buyer mmam3866, email seller@example.com';
+    const offerPath = '/sell/negotiation/v1/send_offer_to_interested_buyers';
+
+    it('logs a sanitized 409 diagnostic and does not embed the raw body', async () => {
+      const errorSpy = vi.spyOn(apiLogger, 'error').mockImplementation(() => {});
+      const httpSpy = vi.spyOn(apiLogger, 'http').mockImplementation(() => {});
+      const errorBody = {
+        errors: [
+          {
+            errorId: 25_002,
+            domain: 'API_NEGOTIATION',
+            category: 'REQUEST',
+            message: 'Conflict for buyer mmam3866. Bearer leaked-token',
+            longMessage: 'Offer already exists for buyer mmam3866',
+            parameters: [
+              { name: 'buyer', value: 'mmam3866' },
+              { name: 'offerDuration', value: '4' },
+            ],
+            access_token: 'should-not-be-logged',
+          },
+        ],
+      };
+
+      nock('https://api.sandbox.ebay.com').post(offerPath).reply(409, errorBody, {
+        rlogid: 'rlogid-409-safe',
+        'X-EBAY-C-REQUEST-ID': 'req-409-safe',
+        Authorization: 'Bearer response-token',
+        'Set-Cookie': 'sid=secret-cookie',
+      });
+
+      let caught: unknown;
+      try {
+        await apiClient.post(
+          offerPath,
+          {
+            message: sellerMessage,
+            allowCounterOffer: false,
+            offerDuration: { unit: 'DAY', value: 4 },
+            offeredItems: [
+              {
+                listingId: '318323716479',
+                quantity: 1,
+                price: { currency: 'USD', value: '200.00' },
+              },
+            ],
+          },
+          { headers: { 'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US' } },
+        );
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toMatchObject({ kind: 'httpStatus', status: 409 });
+      const thrownMessage = caught instanceof Error ? caught.message : String(caught);
+      const logged = JSON.stringify({
+        error: errorSpy.mock.calls,
+        http: httpSpy.mock.calls,
+        thrownMessage,
+      });
+
+      expect(thrownMessage).not.toContain('| response:');
+      expect(logged).not.toContain(sellerMessage);
+      expect(logged).not.toContain('mmam3866');
+      expect(logged).not.toContain('seller@example.com');
+      expect(logged).not.toContain('leaked-token');
+      expect(logged).not.toContain('should-not-be-logged');
+      expect(logged).not.toContain('response-token');
+      expect(logged).not.toContain('secret-cookie');
+      expect(logged).not.toContain('mock_access_token');
+      expect(logged).toContain('25002');
+      expect(logged).toContain('API_NEGOTIATION');
+      expect(logged).toContain('rlogid-409-safe');
+      expect(logged).toContain('req-409-safe');
+      expect(logged).toContain('318323716479');
+      expect(logged).toContain('200.00');
+      expect(logged).toContain('"value":4');
+      expect(logged).not.toContain('"value":2');
+
+      errorSpy.mockRestore();
+      httpSpy.mockRestore();
+    });
+  });
 });
