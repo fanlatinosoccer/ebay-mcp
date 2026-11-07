@@ -150,8 +150,9 @@ describe('seller-offer failure diagnostic', () => {
         ],
       },
     });
-    expect(diagnostic.summary).toContain('[REDACTED]');
-    expect(diagnostic.summary).not.toContain(buyerName);
+    expect(diagnostic.summary).toBe('Seller offer failed with HTTP 409');
+    expect(diagnostic.upstreamMessage).toBe('omitted');
+    expect(diagnostic.errors?.[0]).not.toHaveProperty('message');
     expect(diagnostic.request?.duration?.value).toBe(4);
     expect(JSON.stringify(diagnostic)).not.toContain('"details"');
     assertPrivate(diagnostic);
@@ -221,16 +222,23 @@ describe('seller-offer failure diagnostic', () => {
     expect(badRequest).toMatchObject({
       origin: 'upstream',
       status: 400,
-      errors: [{ errorId: 25_001, message: 'Listing 318323716479 is not eligible' }],
+      summary: 'Seller offer failed with HTTP 400',
+      upstreamMessage: 'omitted',
+      errors: [{ errorId: 25_001 }],
       requestIds: { rlogid: 'rlog-400' },
     });
     expect(badRequest.request?.duration).toBeUndefined();
     expect(badRequest.request?.offeredItems).toBeUndefined();
+    expect(JSON.stringify(badRequest)).not.toContain('318323716479');
+    expect(JSON.stringify(badRequest)).not.toContain('not eligible');
+    expect(JSON.stringify(serverError).toLowerCase()).not.toContain('unavailable');
     expect(serverError).toMatchObject({
       origin: 'upstream',
       failureKind: 'httpStatus',
       status: 500,
-      errors: [{ errorId: 25_000, message: 'Unavailable' }],
+      summary: 'Seller offer failed with HTTP 500',
+      upstreamMessage: 'omitted',
+      errors: [{ errorId: 25_000 }],
     });
     assertPrivate(badRequest);
     assertPrivate(serverError);
@@ -321,14 +329,29 @@ describe('seller-offer failure diagnostic', () => {
 
     expect(validation.origin).toBe('internal');
     expect(validation.status).toBeUndefined();
-    expect(validation.summary).toContain('[REDACTED]');
-    expect(toolInput).toMatchObject({ origin: 'internal', summary: 'Invalid arguments' });
-    expect(transport).toMatchObject({ origin: 'internal', failureKind: 'transport' });
+    expect(validation.summary).toBe('Seller offer failed before the request was sent');
+    expect(validation.upstreamMessage).toBe('omitted');
+    expect(toolInput).toMatchObject({
+      origin: 'internal',
+      summary: 'Seller offer failed before the request was sent',
+      upstreamMessage: 'omitted',
+    });
+    expect(transport).toMatchObject({
+      origin: 'internal',
+      failureKind: 'transport',
+      summary: 'Seller offer failed before a response was received',
+    });
     expect(transport.status).toBeUndefined();
-    expect(refresh).toMatchObject({ origin: 'internal', failureKind: 'tokenRefresh', status: 401 });
+    expect(refresh).toMatchObject({
+      origin: 'internal',
+      failureKind: 'tokenRefresh',
+      status: 401,
+      summary: 'Seller offer failed with HTTP 401',
+    });
     expect(proseOnly.status).toBeUndefined();
     expect(proseOnly.origin).toBeUndefined();
-    expect(proseOnly.summary).toBe('seller-offer API 409');
+    expect(proseOnly.summary).toBe('Seller offer failed');
+    expect(JSON.stringify(proseOnly)).not.toContain('seller-offer API 409');
     assertPrivate(validation);
     assertPrivate(refresh);
   });
@@ -381,7 +404,8 @@ describe('seller-offer failure diagnostic', () => {
       'extra4',
       'extra5',
     ]);
-    expect(diagnostic.errors?.[0]?.message?.endsWith('...')).toBe(true);
+    expect(diagnostic.errors?.[0]).not.toHaveProperty('message');
+    expect(diagnostic.summary).toBe('Seller offer failed with HTTP 409');
     expect(diagnostic.requestIds).toEqual({
       'x-ebay-c-request-id': 'req-bounded',
       'x-ebay-request-id': 'second-id',
@@ -394,6 +418,87 @@ describe('seller-offer failure diagnostic', () => {
     expect(JSON.stringify(diagnostic)).not.toContain('deep-secret');
     expect(JSON.stringify(diagnostic)).not.toContain('secret-value-1');
     expect(JSON.stringify(diagnostic)).not.toContain('super-secret-key');
+  });
+
+  it('omits a buyer handle that appears only in upstream prose and nested values', async () => {
+    const novelHandle = 'qx7novelhandle';
+    const nestedToken = 'nested-malicious-token';
+    let nested: Record<string, unknown> = { handle: novelHandle, token: nestedToken };
+    for (let depth = 0; depth < 8; depth += 1) {
+      nested = { buyer: nested, message: `${novelHandle} at depth ${depth}` };
+    }
+    const httpError = new HttpError('Request failed with status 409', {
+      url: offerUrl,
+      status: 409,
+      statusText: `Conflict ${novelHandle}`,
+      data: {
+        errors: [
+          {
+            errorId: 25_002,
+            domain: 'API_NEGOTIATION',
+            category: 'REQUEST',
+            message: `Buyer ${novelHandle} cannot receive this offer`,
+            longMessage: `Handle ${novelHandle} is not eligible`,
+            parameters: [{ name: 'offerDuration', value: '4' }],
+            nested,
+          },
+        ],
+        leaked: nested,
+      },
+      headers: { rlogid: 'rlog-novel', 'x-ebay-c-request-id': 'req-novel' },
+    });
+    const request = {
+      message: 'ordinary seller note',
+      offerDuration: { unit: 'DAY', value: 4 },
+      offeredItems: [{ listingId: '318323716479', price: { currency: 'USD', value: '200.00' } }],
+    };
+    const caught = await asFiberFailure(
+      new EbayApiError({
+        method: 'POST',
+        path: '/sell/negotiation/v1/send_offer_to_interested_buyers',
+        cause: clientRequestError({
+          kind: 'httpStatus',
+          method: 'POST',
+          url: offerUrl,
+          status: 409,
+          message: `eBay API Error: Handle ${novelHandle} is not eligible | response: ${JSON.stringify(httpError.data)}`,
+          cause: httpError,
+        }),
+      }),
+    );
+    const diagnostic = buildSellerOfferFailureDiagnostic(caught, request);
+    const failure = formatSellerOfferToolFailure(caught, request);
+    const serialized = JSON.stringify({
+      diagnostic,
+      result: failure.result,
+      log: failure.log,
+    });
+
+    expect(diagnostic).toMatchObject({
+      origin: 'upstream',
+      failureKind: 'httpStatus',
+      status: 409,
+      summary: 'Seller offer failed with HTTP 409',
+      upstreamMessage: 'omitted',
+      errors: [
+        {
+          errorId: 25_002,
+          domain: 'API_NEGOTIATION',
+          category: 'REQUEST',
+          parameterNames: ['offerDuration'],
+        },
+      ],
+      requestIds: { rlogid: 'rlog-novel', 'x-ebay-c-request-id': 'req-novel' },
+      request: {
+        duration: { unit: 'DAY', value: 4 },
+        offeredItems: [{ listingId: '318323716479', price: { currency: 'USD', value: '200.00' } }],
+      },
+    });
+    expect(serialized).not.toContain(novelHandle);
+    expect(serialized).not.toContain(nestedToken);
+    expect(serialized).not.toContain('ordinary seller note');
+    expect(serialized).not.toContain('| response:');
+    expect(failure.result.content[0]?.text).toContain('Seller offer failed with HTTP 409');
   });
 
   it('keeps a numeric discount and drops a non-scalar one', () => {

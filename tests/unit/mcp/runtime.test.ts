@@ -159,6 +159,7 @@ describe('MCP runtime', () => {
     const { HttpError } = await import('@/utils/http.js');
     const { toolLogger } = await import('@/utils/logger.js');
     const sellerMessage = 'Please contact mmam3866 at buyer@example.com';
+    const novelHandle = 'qx7novelhandle';
     const httpError = new HttpError('Request failed with status 409', {
       url: 'https://api.sandbox.ebay.com/sell/negotiation/v1/send_offer_to_interested_buyers',
       status: 409,
@@ -169,14 +170,15 @@ describe('MCP runtime', () => {
             errorId: 25_002,
             domain: 'API_NEGOTIATION',
             category: 'REQUEST',
-            message: 'Offer already sent to buyer mmam3866',
+            message: `Offer already sent to buyer ${novelHandle}`,
+            longMessage: `Handle ${novelHandle} is nested in prose only`,
             parameters: [
               { name: 'buyer', value: 'mmam3866' },
               { name: 'accessToken', value: 'secret' },
             ],
           },
         ],
-        nested: { token: 'nested-secret-token' },
+        nested: { buyer: { handle: novelHandle, token: 'nested-secret-token' } },
       },
       headers: {
         rlogid: 'rlogid-runtime',
@@ -246,6 +248,8 @@ describe('MCP runtime', () => {
         origin: 'upstream',
         failureKind: 'httpStatus',
         status: 409,
+        summary: 'Seller offer failed with HTTP 409',
+        upstreamMessage: 'omitted',
         errors: [
           {
             errorId: 25_002,
@@ -266,7 +270,10 @@ describe('MCP runtime', () => {
       },
     });
     expect(parsedError.details).toBeUndefined();
+    expect(parsedError.error).toBe('Seller offer failed with HTTP 409');
+    expect(parsedError.diagnostic.errors[0]).not.toHaveProperty('message');
     expect(text).not.toContain(sellerMessage);
+    expect(text).not.toContain(novelHandle);
     expect(text).not.toContain('mmam3866');
     expect(text).not.toContain('buyer@example.com');
     expect(text).not.toContain('runtime-token');
@@ -276,8 +283,12 @@ describe('MCP runtime', () => {
     expect(text).not.toContain('runtime-cookie');
     expect(text).not.toContain('| response:');
     expect(JSON.stringify(debugSpy.mock.calls)).not.toContain(sellerMessage);
-    expect(JSON.stringify(errorSpy.mock.calls)).toContain('rlogid-runtime');
-    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('mmam3866');
+    const logged = JSON.stringify(errorSpy.mock.calls);
+    expect(logged).toContain('rlogid-runtime');
+    expect(logged).not.toContain('mmam3866');
+    expect(logged).not.toContain(novelHandle);
+    expect(logged).not.toContain('nested-secret-token');
+    expect(logged).not.toContain('| response:');
 
     errorSpy.mockRestore();
     debugSpy.mockRestore();

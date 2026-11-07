@@ -5,19 +5,22 @@ import { Cause, Runtime } from 'effect';
 /**
  * Sanitized failure record for `ebay_send_offer_to_interested_buyers`.
  *
- * The Negotiation call still cannot target a buyer. This module only retains
- * allow-listed request fields and eBay error identity so a later 409 can be
- * diagnosed without storing the seller message, credentials, or raw body.
+ * The Negotiation call still cannot target a buyer. Upstream `message` and
+ * `longMessage` strings are omitted on every seller-offer diagnostic, tool
+ * result, and log. They are arbitrary prose and can name a buyer who appears
+ * in neither the request nor the error parameters. The summary is a fixed
+ * sentence chosen from the HTTP status or an internal failure kind.
+ *
+ * Retained fidelity is status, origin, failure kind, `errorId`, `domain`,
+ * `category`, parameter names, allow-listed correlation ids, and the
+ * allow-listed request. The raw body is not copied.
  */
 export const SELLER_OFFER_TOOL_NAME = 'ebay_send_offer_to_interested_buyers';
 
 const SELLER_OFFER_PATH = '/sell/negotiation/v1/send_offer_to_interested_buyers';
-const REDACTED = '[REDACTED]';
 const MAX_ERRORS = 5;
 const MAX_PARAMETER_NAMES = 8;
 const MAX_OFFERED_ITEMS = 4;
-const MAX_MESSAGE = 160;
-const MAX_TEXT = 4000;
 const MAX_HOPS = 12;
 
 const REQUEST_ID_HEADERS = [
@@ -40,14 +43,6 @@ const MARKETPLACE_ID = /^EBAY_[A-Z0-9_]{1,24}$/;
 const DISCOUNT = /^\d{1,3}(\.\d{1,2})?$/;
 const PARAMETER_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,40}$/;
 const UNSAFE_PARAMETER_NAME = /token|password|secret|authorization|cookie|api[-_]?key/i;
-const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-const PHONE = /(?:\+\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]\d{3}[\s.-]\d{4}/g;
-const BEARER = /\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
-const JWT = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g;
-const URL_CREDENTIALS = /\/\/[^\s/@]+@/g;
-const SECRET_ASSIGNMENT =
-  /\b(?:access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|password|authorization|cookie)\b\s*[:=]\s*\S+/gi;
-const EMBEDDED_JSON = /[[{][\s\S]*[\]}]/g;
 
 const UPSTREAM_KINDS = new Set<EbayClientRequestErrorKind>(['httpStatus', 'remoteRateLimit']);
 const INTERNAL_KINDS = new Set<EbayClientRequestErrorKind>([
@@ -64,12 +59,14 @@ const INTERNAL_TAGS = new Set(['EndpointInputError', 'ToolInputError']);
 /** Why an unstructured eBay body was not copied into the diagnostic. */
 export type UnstructuredBodyReason = 'absent' | 'non-object' | 'unrecognized';
 
-/** One allow-listed eBay error entry. Parameter values are never retained. */
+/**
+ * One allow-listed eBay error entry.
+ * Parameter values and upstream prose (`message`, `longMessage`) are omitted.
+ */
 export interface SellerOfferErrorDiagnostic {
   readonly errorId?: number;
   readonly domain?: string;
   readonly category?: string;
-  readonly message?: string;
   readonly parameterNames?: readonly string[];
 }
 
@@ -100,7 +97,13 @@ export interface SellerOfferFailureDiagnostic {
   readonly origin?: 'upstream' | 'internal';
   readonly failureKind?: EbayClientRequestErrorKind;
   readonly status?: number;
+  /**
+   * Fixed sentence from HTTP status or an internal failure kind.
+   * This is not the eBay error message.
+   */
   readonly summary: string;
+  /** Upstream prose is intentionally omitted rather than scrubbed or copied. */
+  readonly upstreamMessage: 'omitted';
   readonly errors?: readonly SellerOfferErrorDiagnostic[];
   readonly requestIds?: Readonly<Record<string, string>>;
   readonly request?: SellerOfferRequestDiagnostic;
@@ -129,13 +132,6 @@ const plainRecord = (value: unknown): Record<string, unknown> | undefined => {
 
 const own = (record: Record<string, unknown>, key: string): unknown =>
   Object.hasOwn(record, key) ? record[key] : undefined;
-
-const isSafeScalar = (value: string): boolean =>
-  /^\d{1,12}(\.\d{1,4})?$/.test(value) ||
-  CURRENCY.test(value) ||
-  /^(YEAR|MONTH|DAY|HOUR|MINUTE|SECOND)$/.test(value) ||
-  MARKETPLACE_ID.test(value) ||
-  /^(true|false)$/i.test(value);
 
 const readString = (record: Record<string, unknown>, key: string): string | undefined => {
   const value = own(record, key);
@@ -185,68 +181,32 @@ const headerValue = (headers: Record<string, unknown> | undefined, name: string)
   }
 };
 
-const collectLiterals = (errorBody: unknown, request: unknown): string[] => {
-  const literals: string[] = [];
-  const requestRecord = plainRecord(request);
-  const sellerMessage = requestRecord ? readString(requestRecord, 'message') : undefined;
-  if (sellerMessage && sellerMessage.length >= 4 && sellerMessage.length <= 2000) {
-    literals.push(sellerMessage);
-  }
-
-  const body = plainRecord(errorBody);
-  const errors = body && Array.isArray(body.errors) ? body.errors : [];
-  const errorLimit = Math.min(errors.length, MAX_ERRORS);
-  for (let index = 0; index < errorLimit; index += 1) {
-    const entry = plainRecord(errors[index]);
-    const parameters = entry && Array.isArray(entry.parameters) ? entry.parameters : [];
-    const parameterLimit = Math.min(parameters.length, MAX_PARAMETER_NAMES);
-    for (let parameterIndex = 0; parameterIndex < parameterLimit; parameterIndex += 1) {
-      const parameter = plainRecord(parameters[parameterIndex]);
-      const value = parameter ? readString(parameter, 'value') : undefined;
-      if (value && value.length >= 4 && value.length <= 500 && !isSafeScalar(value)) {
-        literals.push(value);
-      }
-    }
-  }
-
-  return literals.slice(0, 24);
-};
-
-const scrubText = (value: string, literals: readonly string[]): string => {
-  let text = value.length > MAX_TEXT ? value.slice(0, MAX_TEXT) : value;
-  const responseMarker = text.indexOf('| response:');
-  if (responseMarker >= 0) {
-    text = text.slice(0, responseMarker);
-  }
-  text = text.replace(EMBEDDED_JSON, '[omitted]');
-  for (const literal of literals) {
-    if (literal.length >= 4 && text.includes(literal)) {
-      text = text.split(literal).join(REDACTED);
-    }
-  }
-  text = text
-    .replace(URL_CREDENTIALS, `//${REDACTED}@`)
-    .replace(BEARER, REDACTED)
-    .replace(JWT, REDACTED)
-    .replace(EMAIL, REDACTED)
-    .replace(PHONE, REDACTED)
-    .replace(SECRET_ASSIGNMENT, REDACTED)
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text.length > MAX_MESSAGE ? `${text.slice(0, MAX_MESSAGE)}...` : text;
-};
+const httpStatus = (status: number | undefined): number | undefined =>
+  typeof status === 'number' && status >= 100 && status <= 599 ? status : undefined;
 
 /**
- * Scrubs a seller-offer HTTP status message so the thrown error text does not
- * carry the raw response body, seller message, or sensitive parameter values.
+ * Summary used for seller-offer failures. The sentence comes from the status
+ * or failure kind, never from upstream or caller-supplied prose.
  */
-export const scrubSellerOfferFailureText = (
-  text: string,
-  errorBody: unknown,
-  request: unknown,
-): string => {
-  const scrubbed = scrubText(text, collectLiterals(errorBody, request));
-  return scrubbed.length > 0 ? scrubbed : 'Seller offer failed';
+export const sellerOfferCuratedSummary = (input: {
+  readonly status?: number;
+  readonly failureKind?: EbayClientRequestErrorKind;
+  readonly internal?: boolean;
+}): string => {
+  const status = httpStatus(input.status);
+  if (status !== undefined) {
+    return `Seller offer failed with HTTP ${status}`;
+  }
+  if (input.failureKind === 'transport') {
+    return 'Seller offer failed before a response was received';
+  }
+  if (
+    input.internal === true ||
+    (input.failureKind !== undefined && INTERNAL_KINDS.has(input.failureKind))
+  ) {
+    return 'Seller offer failed before the request was sent';
+  }
+  return 'Seller offer failed';
 };
 
 const sanitizePrice = (value: unknown): SellerOfferPriceDiagnostic | undefined => {
@@ -449,16 +409,11 @@ const enumText = (
   return value && /^[A-Za-z0-9_.:-]{1,64}$/.test(value) ? value : undefined;
 };
 
-const sanitizeError = (
-  entry: Record<string, unknown>,
-  literals: readonly string[],
-): SellerOfferErrorDiagnostic | undefined => {
-  const messageSource = readString(entry, 'message') ?? readString(entry, 'longMessage');
+const sanitizeError = (entry: Record<string, unknown>): SellerOfferErrorDiagnostic | undefined => {
   const diagnostic: {
     errorId?: number;
     domain?: string;
     category?: string;
-    message?: string;
     parameterNames?: string[];
   } = {};
   const errorId = errorIdOf(entry);
@@ -473,12 +428,6 @@ const sanitizeError = (
   if (category) {
     diagnostic.category = category;
   }
-  if (messageSource) {
-    const message = scrubText(messageSource, literals);
-    if (message.length > 0) {
-      diagnostic.message = message;
-    }
-  }
   const names = parameterNames(entry);
   if (names) {
     diagnostic.parameterNames = names;
@@ -492,7 +441,6 @@ interface ChainFacts {
   internalTag: boolean;
   headers?: unknown;
   data?: unknown;
-  messages: string[];
 }
 
 const nextErrorNode = (node: Record<string, unknown>): unknown => {
@@ -528,13 +476,10 @@ const absorbErrorNode = (node: Record<string, unknown>, facts: ChainFacts): void
   if (facts.data === undefined && node.data !== undefined) {
     facts.data = node.data;
   }
-  if (typeof node.message === 'string' && node.message.length > 0 && facts.messages.length < 4) {
-    facts.messages.push(node.message);
-  }
 };
 
 const walkErrorChain = (error: unknown): ChainFacts => {
-  const facts: ChainFacts = { internalTag: false, messages: [] };
+  const facts: ChainFacts = { internalTag: false };
   const seen = new Set<unknown>();
   let current: unknown = error;
   let hops = 0;
@@ -543,9 +488,6 @@ const walkErrorChain = (error: unknown): ChainFacts => {
     seen.add(current);
     const node = asRecord(current);
     if (!node) {
-      if (typeof current === 'string' && facts.messages.length === 0) {
-        facts.messages.push(current);
-      }
       break;
     }
     absorbErrorNode(node, facts);
@@ -584,59 +526,10 @@ const unstructuredBodyReason = (
   return origin === 'upstream' || facts.status !== undefined ? 'absent' : undefined;
 };
 
-const summaryFor = (
-  facts: ChainFacts,
-  errors: readonly SellerOfferErrorDiagnostic[],
-  literals: readonly string[],
-): string => {
-  const errorMessage = errors.find((entry) => entry.message)?.message;
-  if (errorMessage) {
-    return errorMessage;
-  }
-  for (const message of facts.messages) {
-    const scrubbed = scrubText(message, literals);
-    if (scrubbed.length > 0) {
-      return scrubbed;
-    }
-  }
-  return facts.status === undefined
-    ? 'Seller offer failed'
-    : `Seller offer failed with HTTP ${facts.status}`;
-};
-
-const omitRawLiterals = (
-  diagnostic: SellerOfferFailureDiagnostic,
-  literals: readonly string[],
-): SellerOfferFailureDiagnostic => {
-  const sensitive = literals.filter((literal) => literal.length >= 4 && !isSafeScalar(literal));
-  if (sensitive.length === 0) {
-    return diagnostic;
-  }
-  let serialized = JSON.stringify(diagnostic);
-  let changed = false;
-  for (const literal of sensitive) {
-    if (serialized.includes(literal)) {
-      serialized = serialized.split(literal).join(REDACTED);
-      changed = true;
-    }
-  }
-  if (!changed) {
-    return diagnostic;
-  }
-  try {
-    const parsed: unknown = JSON.parse(serialized);
-    const record = plainRecord(parsed);
-    return record && typeof record.summary === 'string'
-      ? (parsed as SellerOfferFailureDiagnostic)
-      : { summary: 'Seller offer failed', unstructuredBody: 'unrecognized' };
-  } catch {
-    return { summary: 'Seller offer failed', unstructuredBody: 'unrecognized' };
-  }
-};
-
 /**
  * Builds the seller-offer failure diagnostic from an unknown thrown value and
- * the original tool or HTTP request. Unknown body shapes are not copied.
+ * the original tool or HTTP request. Unknown body shapes and upstream prose
+ * are not copied.
  */
 export const buildSellerOfferFailureDiagnostic = (
   error: unknown,
@@ -644,32 +537,36 @@ export const buildSellerOfferFailureDiagnostic = (
   headers?: Record<string, string>,
 ): SellerOfferFailureDiagnostic => {
   const facts = walkErrorChain(error);
-  const literals = collectLiterals(facts.data, request);
   const extracted = readErrorEntries(facts.data);
   const errors = extracted.records.flatMap((entry) => {
-    const diagnostic = sanitizeError(entry, literals);
+    const diagnostic = sanitizeError(entry);
     return diagnostic ? [diagnostic] : [];
   });
   const safeRequest = sanitizeSellerOfferRequest(request, headers);
   const requestIds = readRequestIds(facts.headers);
   const origin = resolveOrigin(facts);
   const unstructuredBody = unstructuredBodyReason(facts, errors.length, extracted.reason, origin);
-  const diagnostic: SellerOfferFailureDiagnostic = {
+  return {
     ...(origin ? { origin } : {}),
     ...(facts.failureKind ? { failureKind: facts.failureKind } : {}),
     ...(facts.status === undefined ? {} : { status: facts.status }),
-    summary: summaryFor(facts, errors, literals),
+    summary: sellerOfferCuratedSummary({
+      status: facts.status,
+      failureKind: facts.failureKind,
+      internal: facts.internalTag,
+    }),
+    upstreamMessage: 'omitted',
     ...(errors.length > 0 ? { errors } : {}),
     ...(requestIds ? { requestIds } : {}),
     ...(safeRequest ? { request: safeRequest } : {}),
     ...(unstructuredBody ? { unstructuredBody } : {}),
   };
-  return omitRawLiterals(diagnostic, literals);
 };
 
 /**
- * MCP text result for a seller-offer failure. `error` and `status` stay at the
- * top level; the raw eBay body is not placed in `details`.
+ * MCP text result for a seller-offer failure. `error` is the curated summary
+ * and `status` stays at the top level. The raw eBay body and upstream prose
+ * are not placed in `details` or `diagnostic`.
  */
 export const formatSellerOfferToolFailure = (
   error: unknown,

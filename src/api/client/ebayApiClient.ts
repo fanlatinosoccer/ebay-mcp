@@ -11,7 +11,7 @@ import {
   buildSellerOfferFailureDiagnostic,
   isSellerOfferRequestUrl,
   sanitizeSellerOfferRequest,
-  scrubSellerOfferFailureText,
+  sellerOfferCuratedSummary,
 } from '@/utils/communication/sellerOfferFailureDiagnostic.js';
 import {
   type HttpResponse,
@@ -229,22 +229,6 @@ export class EbayApiClient {
   }
 
   /**
-   * Seller-offer status text is scrubbed. Other endpoints keep the raw eBay detail
-   * so existing error messages, including the embedded response body, stay stable.
-   */
-  private sellerOfferSafeDetail(
-    url: string,
-    errorBody: unknown,
-    requestBody: unknown,
-    fallback = 'Invalid access token',
-  ): string {
-    const detail = this.ebayErrorDetail(errorBody) ?? fallback;
-    return isSellerOfferRequestUrl(url)
-      ? scrubSellerOfferFailureText(detail, errorBody, requestBody)
-      : detail;
-  }
-
-  /**
    * Pull the most descriptive eBay error string from a response body when present.
    * eBay REST errors arrive as `{ errors: [{ message, longMessage }] }`.
    */
@@ -440,7 +424,9 @@ export class EbayApiClient {
           kind: 'transport',
           method,
           url,
-          message: getErrorMessage(error),
+          message: isSellerOfferRequestUrl(url)
+            ? sellerOfferCuratedSummary({ failureKind: 'transport' })
+            : getErrorMessage(error),
           cause: error,
         }),
       );
@@ -449,7 +435,7 @@ export class EbayApiClient {
     if (error.status == null) {
       apiLogger.error('No response received from server', { url });
     } else if (isSellerOfferRequestUrl(url)) {
-      apiLogger.error(`Error Response: ${error.status} ${error.statusText ?? ''}`.trim(), {
+      apiLogger.error(`Error Response: ${error.status}`, {
         url,
         diagnostic: buildSellerOfferFailureDiagnostic(error, options.data, options.headers),
       });
@@ -466,19 +452,26 @@ export class EbayApiClient {
 
         return this.acquireAccessToken(options.tokenType).pipe(
           Effect.catchAll((refreshError) => {
+            const sellerOffer = isSellerOfferRequestUrl(url);
             const reason = getErrorMessage(refreshError);
-            apiLogger.error('Failed to refresh token', { error: reason });
+            apiLogger.error(
+              'Failed to refresh token',
+              sellerOffer ? { status: error.status } : { error: reason },
+            );
 
-            const detail = this.sellerOfferSafeDetail(url, error.data, options.data);
+            const detail = sellerOffer
+              ? sellerOfferCuratedSummary({ status: error.status, failureKind: 'tokenRefresh' })
+              : (this.ebayErrorDetail(error.data) ?? 'Invalid access token');
+            const refreshDetail = sellerOffer
+              ? 'Token refresh failed'
+              : `Token refresh failed: ${reason}`;
             return Effect.fail(
               clientRequestError({
                 kind: 'tokenRefresh',
                 method,
                 url,
                 status: error.status,
-                message:
-                  `${detail}. Token refresh failed: ${reason}. ` +
-                  tokenFailureRemediation(options.tokenType),
+                message: `${detail}. ${refreshDetail}. ${tokenFailureRemediation(options.tokenType)}`,
                 cause: refreshError,
               }),
             );
@@ -493,7 +486,9 @@ export class EbayApiClient {
         );
       }
 
-      const detail = this.sellerOfferSafeDetail(url, error.data, options.data);
+      const detail = isSellerOfferRequestUrl(url)
+        ? sellerOfferCuratedSummary({ status: error.status, failureKind: 'tokenRefresh' })
+        : (this.ebayErrorDetail(error.data) ?? 'Invalid access token');
       return Effect.fail(
         clientRequestError({
           kind: 'tokenRefresh',
@@ -547,9 +542,9 @@ export class EbayApiClient {
     }
 
     if (error.status != null) {
-      const detail = this.sellerOfferSafeDetail(url, error.data, options.data, error.message);
+      const detail = this.ebayErrorDetail(error.data) ?? error.message;
       const message = isSellerOfferRequestUrl(url)
-        ? `eBay API Error: ${detail}`
+        ? sellerOfferCuratedSummary({ status: error.status, failureKind: 'httpStatus' })
         : `eBay API Error: ${detail}${this.ebayErrorBody(error.data)}`;
       return Effect.fail(
         clientRequestError({
@@ -568,7 +563,9 @@ export class EbayApiClient {
         kind: 'transport',
         method,
         url,
-        message: error.message,
+        message: isSellerOfferRequestUrl(url)
+          ? sellerOfferCuratedSummary({ failureKind: 'transport' })
+          : error.message,
         cause: error,
       }),
     );
