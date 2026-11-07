@@ -173,9 +173,15 @@ describe('MCP runtime', () => {
             message: `Offer already sent to buyer ${novelHandle}`,
             longMessage: `Handle ${novelHandle} is nested in prose only`,
             parameters: [
-              { name: 'buyer', value: 'mmam3866' },
+              { name: novelHandle, value: 'mmam3866' },
               { name: 'accessToken', value: 'secret' },
             ],
+          },
+          {
+            errorId: novelHandle,
+            domain: novelHandle,
+            category: novelHandle,
+            parameters: [{ name: novelHandle, value: novelHandle }],
           },
         ],
         nested: { buyer: { handle: novelHandle, token: 'nested-secret-token' } },
@@ -183,6 +189,8 @@ describe('MCP runtime', () => {
       headers: {
         rlogid: 'rlogid-runtime',
         'x-ebay-c-request-id': 'req-runtime',
+        'x-request-id': 'x'.repeat(300),
+        'x-buyer-handle': novelHandle,
         authorization: 'Bearer runtime-token',
         'set-cookie': 'sid=runtime-cookie',
       },
@@ -255,7 +263,12 @@ describe('MCP runtime', () => {
             errorId: 25_002,
             domain: 'API_NEGOTIATION',
             category: 'REQUEST',
-            parameterNames: ['buyer'],
+            parameterNames: ['unrecognized'],
+          },
+          {
+            domain: 'unrecognized',
+            category: 'unrecognized',
+            parameterNames: ['unrecognized'],
           },
         ],
         requestIds: { rlogid: 'rlogid-runtime', 'x-ebay-c-request-id': 'req-runtime' },
@@ -274,6 +287,7 @@ describe('MCP runtime', () => {
     expect(parsedError.diagnostic.errors[0]).not.toHaveProperty('message');
     expect(text).not.toContain(sellerMessage);
     expect(text).not.toContain(novelHandle);
+    expect(text).not.toContain('x'.repeat(80));
     expect(text).not.toContain('mmam3866');
     expect(text).not.toContain('buyer@example.com');
     expect(text).not.toContain('runtime-token');
@@ -287,6 +301,8 @@ describe('MCP runtime', () => {
     expect(logged).toContain('rlogid-runtime');
     expect(logged).not.toContain('mmam3866');
     expect(logged).not.toContain(novelHandle);
+    expect(logged).not.toContain('x'.repeat(80));
+    expect(logged).toContain('unrecognized');
     expect(logged).not.toContain('nested-secret-token');
     expect(logged).not.toContain('| response:');
 

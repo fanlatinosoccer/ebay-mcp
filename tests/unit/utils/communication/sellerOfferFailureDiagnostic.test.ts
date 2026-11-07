@@ -130,7 +130,7 @@ describe('seller-offer failure diagnostic', () => {
           errorId: 25_002,
           domain: 'API_NEGOTIATION',
           category: 'REQUEST',
-          parameterNames: ['buyer', 'offerDuration'],
+          parameterNames: ['offerDuration', 'unrecognized'],
         },
       ],
       requestIds: {
@@ -395,15 +395,9 @@ describe('seller-offer failure diagnostic', () => {
     );
 
     expect(diagnostic.errors).toHaveLength(5);
-    expect(diagnostic.errors?.[0]?.parameterNames).toEqual([
-      'listingId',
-      'extra0',
-      'extra1',
-      'extra2',
-      'extra3',
-      'extra4',
-      'extra5',
-    ]);
+    expect(diagnostic.errors?.[0]?.parameterNames).toEqual(['listingId', 'unrecognized']);
+    expect(JSON.stringify(diagnostic.errors)).not.toContain('extra0');
+    expect(JSON.stringify(diagnostic.errors)).not.toContain('api_key');
     expect(diagnostic.errors?.[0]).not.toHaveProperty('message');
     expect(diagnostic.summary).toBe('Seller offer failed with HTTP 409');
     expect(diagnostic.requestIds).toEqual({
@@ -499,6 +493,65 @@ describe('seller-offer failure diagnostic', () => {
     expect(serialized).not.toContain('ordinary seller note');
     expect(serialized).not.toContain('| response:');
     expect(failure.result.content[0]?.text).toContain('Seller offer failed with HTTP 409');
+  });
+
+  it('replaces a novel handle used as parameter name, domain, or category', async () => {
+    const novelHandle = 'qx7novelhandle';
+    const overlongId = `r${'z'.repeat(300)}`;
+    const httpError = new HttpError('Request failed with status 409', {
+      url: offerUrl,
+      status: 409,
+      data: {
+        errors: [
+          {
+            errorId: 25_002,
+            domain: 'API_NEGOTIATION',
+            category: 'REQUEST',
+            parameters: [
+              { name: 'offeredItems[0].price.value', value: '200.00' },
+              { name: novelHandle, value: novelHandle },
+              { name: `offerDuration.${novelHandle}`, value: '4' },
+            ],
+          },
+          {
+            errorId: novelHandle,
+            domain: novelHandle,
+            category: novelHandle,
+            message: novelHandle,
+            parameters: [{ name: novelHandle, value: 'mmam3866' }],
+          },
+        ],
+      },
+      headers: {
+        rlogid: 'rlogid-safe-value',
+        'x-ebay-c-request-id': overlongId,
+        'x-buyer-handle': novelHandle,
+        authorization: `Bearer ${novelHandle}`,
+      },
+    });
+    const failure = formatSellerOfferToolFailure(await asFiberFailure(httpError), {
+      offeredItems: [{ listingId: '318323716479', price: { currency: 'USD', value: '200.00' } }],
+    });
+    const serialized = JSON.stringify({ result: failure.result, log: failure.log });
+
+    expect(failure.log.diagnostic.errors).toEqual([
+      {
+        errorId: 25_002,
+        domain: 'API_NEGOTIATION',
+        category: 'REQUEST',
+        parameterNames: ['offeredItems.0.price.value', 'unrecognized'],
+      },
+      {
+        domain: 'unrecognized',
+        category: 'unrecognized',
+        parameterNames: ['unrecognized'],
+      },
+    ]);
+    expect(failure.log.diagnostic.requestIds).toEqual({ rlogid: 'rlogid-safe-value' });
+    expect(serialized).not.toContain(novelHandle);
+    expect(serialized).not.toContain(overlongId);
+    expect(serialized).not.toContain('mmam3866');
+    expect(failure.log.diagnostic.summary).toBe('Seller offer failed with HTTP 409');
   });
 
   it('keeps a numeric discount and drops a non-scalar one', () => {

@@ -645,22 +645,32 @@ describe('EbayApiClient Unit Tests', () => {
             message: `Conflict for buyer ${novelHandle}. Bearer leaked-token`,
             longMessage: `Offer already exists for ${novelHandle}`,
             parameters: [
-              { name: 'buyer', value: 'mmam3866' },
+              { name: novelHandle, value: 'mmam3866' },
               { name: 'offerDuration', value: '4' },
             ],
             access_token: 'should-not-be-logged',
             nested: { buyer: { handle: novelHandle, token: 'nested-malicious-token' } },
           },
+          {
+            errorId: novelHandle,
+            domain: novelHandle,
+            category: novelHandle,
+            parameters: [{ name: `offeredItems[0].${novelHandle}`, value: novelHandle }],
+          },
         ],
         leaked: { note: novelHandle },
       };
 
-      nock('https://api.sandbox.ebay.com').post(offerPath).reply(409, errorBody, {
-        rlogid: 'rlogid-409-safe',
-        'X-EBAY-C-REQUEST-ID': 'req-409-safe',
-        Authorization: 'Bearer response-token',
-        'Set-Cookie': 'sid=secret-cookie',
-      });
+      nock('https://api.sandbox.ebay.com')
+        .post(offerPath)
+        .reply(409, errorBody, {
+          rlogid: 'rlogid-409-safe',
+          'X-EBAY-C-REQUEST-ID': 'req-409-safe',
+          'x-request-id': 'y'.repeat(300),
+          'x-buyer-handle': novelHandle,
+          Authorization: 'Bearer response-token',
+          'Set-Cookie': 'sid=secret-cookie',
+        });
 
       let caught: unknown;
       try {
@@ -703,6 +713,9 @@ describe('EbayApiClient Unit Tests', () => {
       expect(logged).not.toContain(novelHandle);
       expect(logged).not.toContain('mmam3866');
       expect(logged).not.toContain('nested-malicious-token');
+      expect(logged).not.toContain('y'.repeat(80));
+      expect(logged).toContain('unrecognized');
+      expect(logged).toContain('offerDuration');
       expect(logged).not.toContain('seller@example.com');
       expect(logged).not.toContain('leaked-token');
       expect(logged).not.toContain('should-not-be-logged');

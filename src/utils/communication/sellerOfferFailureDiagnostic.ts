@@ -11,9 +11,11 @@ import { Cause, Runtime } from 'effect';
  * in neither the request nor the error parameters. The summary is a fixed
  * sentence chosen from the HTTP status or an internal failure kind.
  *
- * Retained fidelity is status, origin, failure kind, `errorId`, `domain`,
- * `category`, parameter names, allow-listed correlation ids, and the
- * allow-listed request. The raw body is not copied.
+ * Retained fidelity is status, origin, failure kind, a numeric `errorId`,
+ * allow-listed `domain` and `category` values, known seller-offer parameter
+ * paths, allow-listed correlation ids, and the allow-listed request.
+ * Unknown domain, category, and parameter names become `unrecognized`.
+ * The raw body is not copied.
  */
 export const SELLER_OFFER_TOOL_NAME = 'ebay_send_offer_to_interested_buyers';
 
@@ -41,8 +43,44 @@ const PRICE_VALUE = /^\d{1,10}(\.\d{1,4})?$/;
 const DURATION_UNIT = /^[A-Z_]{1,16}$/;
 const MARKETPLACE_ID = /^EBAY_[A-Z0-9_]{1,24}$/;
 const DISCOUNT = /^\d{1,3}(\.\d{1,2})?$/;
-const PARAMETER_NAME = /^[A-Za-z][A-Za-z0-9_.-]{0,40}$/;
-const UNSAFE_PARAMETER_NAME = /token|password|secret|authorization|cookie|api[-_]?key/i;
+const UNRECOGNIZED = 'unrecognized';
+/**
+ * Negotiation `Error.domain` for this call. Any other string is metadata we
+ * will not copy.
+ */
+const ERROR_DOMAINS = new Set(['API_NEGOTIATION']);
+/**
+ * eBay ErrorCategory values. Upper case is the negotiation COS spelling;
+ * title case is the spelling documented on other Sell error models in this repo.
+ */
+const ERROR_CATEGORIES = new Set([
+  'APPLICATION',
+  'BUSINESS',
+  'REQUEST',
+  'Application',
+  'Business',
+  'Request',
+]);
+/**
+ * Field names from CreateOffersRequest, OfferedItem, Amount, TimeDuration,
+ * and the marketplace header this call sends. Paths may only use these
+ * segments plus an offered-item index of 0–3.
+ */
+const PARAMETER_SEGMENTS = new Set([
+  'allowCounterOffer',
+  'message',
+  'offerDuration',
+  'unit',
+  'value',
+  'offeredItems',
+  'discountPercentage',
+  'listingId',
+  'price',
+  'currency',
+  'quantity',
+  'marketplaceId',
+  'X-EBAY-C-MARKETPLACE-ID',
+]);
 
 const UPSTREAM_KINDS = new Set<EbayClientRequestErrorKind>(['httpStatus', 'remoteRateLimit']);
 const INTERNAL_KINDS = new Set<EbayClientRequestErrorKind>([
@@ -63,10 +101,23 @@ export type UnstructuredBodyReason = 'absent' | 'non-object' | 'unrecognized';
  * One allow-listed eBay error entry.
  * Parameter values and upstream prose (`message`, `longMessage`) are omitted.
  */
+/** Negotiation error domain, or `unrecognized` when the upstream value is not that name. */
+export type SellerOfferErrorDomain = 'API_NEGOTIATION' | 'unrecognized';
+/** Documented eBay error category, or `unrecognized` when the upstream value is not one of them. */
+export type SellerOfferErrorCategory =
+  | 'APPLICATION'
+  | 'BUSINESS'
+  | 'REQUEST'
+  | 'Application'
+  | 'Business'
+  | 'Request'
+  | 'unrecognized';
+
 export interface SellerOfferErrorDiagnostic {
   readonly errorId?: number;
-  readonly domain?: string;
-  readonly category?: string;
+  readonly domain?: SellerOfferErrorDomain;
+  readonly category?: SellerOfferErrorCategory;
+  /** Canonical seller-offer field paths. Unknown names are the single token `unrecognized`. */
   readonly parameterNames?: readonly string[];
 }
 
@@ -374,21 +425,72 @@ const readErrorEntries = (
   return { records: [], reason: 'unrecognized' };
 };
 
+const knownParameterPath = (raw: string): string | undefined => {
+  if (raw.length < 1 || raw.length > 80) {
+    return;
+  }
+  const segments: string[] = [];
+  let index = 0;
+  while (index < raw.length) {
+    const char = raw[index];
+    if (char === '.' || char === '/') {
+      index += 1;
+      continue;
+    }
+    if (char === '[') {
+      const close = raw.indexOf(']', index);
+      const inner = close === -1 ? undefined : raw.slice(index + 1, close);
+      if (inner !== '0' && inner !== '1' && inner !== '2' && inner !== '3') {
+        return;
+      }
+      segments.push(inner);
+      index = close + 1;
+      continue;
+    }
+    const next = raw[index + 1];
+    if (
+      (char === '0' || char === '1' || char === '2' || char === '3') &&
+      (next === undefined || next === '.' || next === '/' || next === '[')
+    ) {
+      segments.push(char);
+      index += 1;
+      continue;
+    }
+    const match = /^[A-Za-z][A-Za-z0-9-]*/.exec(raw.slice(index));
+    const segment = match?.[0];
+    if (segment === undefined || !PARAMETER_SEGMENTS.has(segment)) {
+      return;
+    }
+    segments.push(segment);
+    index += segment.length;
+  }
+  return segments.length > 0 && segments.length <= 6 ? segments.join('.') : undefined;
+};
+
 const parameterNames = (entry: Record<string, unknown>): string[] | undefined => {
   const parameters = own(entry, 'parameters');
-  if (!Array.isArray(parameters)) {
+  if (!Array.isArray(parameters) || parameters.length === 0) {
     return;
   }
   const names: string[] = [];
+  let unrecognized = parameters.length > MAX_PARAMETER_NAMES;
   const limit = Math.min(parameters.length, MAX_PARAMETER_NAMES);
   for (let index = 0; index < limit; index += 1) {
     const parameter = plainRecord(parameters[index]);
     const name = parameter ? readString(parameter, 'name') : undefined;
-    if (name && PARAMETER_NAME.test(name) && !UNSAFE_PARAMETER_NAME.test(name)) {
-      names.push(name);
+    const path = name === undefined ? undefined : knownParameterPath(name);
+    if (path === undefined) {
+      unrecognized = true;
+      continue;
+    }
+    if (!names.includes(path)) {
+      names.push(path);
     }
   }
-  return names.length > 0 ? names : undefined;
+  if (unrecognized && names.length < MAX_PARAMETER_NAMES) {
+    names.push(UNRECOGNIZED);
+  }
+  return names.length > 0 ? names : [UNRECOGNIZED];
 };
 
 const errorIdOf = (entry: Record<string, unknown>): number | undefined => {
@@ -401,30 +503,35 @@ const errorIdOf = (entry: Record<string, unknown>): number | undefined => {
     : undefined;
 };
 
-const enumText = (
-  entry: Record<string, unknown>,
-  key: 'domain' | 'category',
-): string | undefined => {
-  const value = readString(entry, key);
-  return value && /^[A-Za-z0-9_.:-]{1,64}$/.test(value) ? value : undefined;
+const allowlistedToken = <T extends string>(
+  value: unknown,
+  allowed: ReadonlySet<string>,
+): T | 'unrecognized' | undefined => {
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === 'string' && allowed.has(value) ? (value as T) : UNRECOGNIZED;
 };
 
 const sanitizeError = (entry: Record<string, unknown>): SellerOfferErrorDiagnostic | undefined => {
   const diagnostic: {
     errorId?: number;
-    domain?: string;
-    category?: string;
+    domain?: SellerOfferErrorDomain;
+    category?: SellerOfferErrorCategory;
     parameterNames?: string[];
   } = {};
   const errorId = errorIdOf(entry);
   if (errorId !== undefined) {
     diagnostic.errorId = errorId;
   }
-  const domain = enumText(entry, 'domain');
+  const domain = allowlistedToken<SellerOfferErrorDomain>(own(entry, 'domain'), ERROR_DOMAINS);
   if (domain) {
     diagnostic.domain = domain;
   }
-  const category = enumText(entry, 'category');
+  const category = allowlistedToken<SellerOfferErrorCategory>(
+    own(entry, 'category'),
+    ERROR_CATEGORIES,
+  );
   if (category) {
     diagnostic.category = category;
   }
