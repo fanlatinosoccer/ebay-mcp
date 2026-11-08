@@ -8,6 +8,12 @@ import { getBaseUrl } from '@/config/environment.js';
 import type { EbayConfig } from '@/types/ebay.js';
 import { getErrorMessage } from '@/utils/errors.js';
 import {
+  buildSellerOfferFailureDiagnostic,
+  isSellerOfferRequestUrl,
+  sanitizeSellerOfferRequest,
+  sellerOfferCuratedSummary,
+} from '@/utils/communication/sellerOfferFailureDiagnostic.js';
+import {
   type HttpResponse,
   httpRequestEffect,
   isHttpError,
@@ -368,12 +374,12 @@ export class EbayApiClient {
       }
 
       this.rateLimitTracker.recordRequest();
-      logRequest(
-        method,
-        url,
-        options.params,
-        isBinaryBody(options.data) ? '[binary body]' : options.data,
-      );
+      const loggedBody = isBinaryBody(options.data)
+        ? '[binary body]'
+        : isSellerOfferRequestUrl(url)
+          ? sanitizeSellerOfferRequest(options.data, options.headers)
+          : options.data;
+      logRequest(method, url, options.params, loggedBody);
 
       return yield* httpRequestEffect<T>({
         method,
@@ -418,7 +424,9 @@ export class EbayApiClient {
           kind: 'transport',
           method,
           url,
-          message: getErrorMessage(error),
+          message: isSellerOfferRequestUrl(url)
+            ? sellerOfferCuratedSummary({ failureKind: 'transport' })
+            : getErrorMessage(error),
           cause: error,
         }),
       );
@@ -426,6 +434,11 @@ export class EbayApiClient {
 
     if (error.status == null) {
       apiLogger.error('No response received from server', { url });
+    } else if (isSellerOfferRequestUrl(url)) {
+      apiLogger.error(`Error Response: ${error.status}`, {
+        url,
+        diagnostic: buildSellerOfferFailureDiagnostic(error, options.data, options.headers),
+      });
     } else {
       logErrorResponse(error.status, error.statusText, url, error.data);
     }
@@ -439,19 +452,26 @@ export class EbayApiClient {
 
         return this.acquireAccessToken(options.tokenType).pipe(
           Effect.catchAll((refreshError) => {
+            const sellerOffer = isSellerOfferRequestUrl(url);
             const reason = getErrorMessage(refreshError);
-            apiLogger.error('Failed to refresh token', { error: reason });
+            apiLogger.error(
+              'Failed to refresh token',
+              sellerOffer ? { status: error.status } : { error: reason },
+            );
 
-            const detail = this.ebayErrorDetail(error.data) ?? 'Invalid access token';
+            const detail = sellerOffer
+              ? sellerOfferCuratedSummary({ status: error.status, failureKind: 'tokenRefresh' })
+              : (this.ebayErrorDetail(error.data) ?? 'Invalid access token');
+            const refreshDetail = sellerOffer
+              ? 'Token refresh failed'
+              : `Token refresh failed: ${reason}`;
             return Effect.fail(
               clientRequestError({
                 kind: 'tokenRefresh',
                 method,
                 url,
                 status: error.status,
-                message:
-                  `${detail}. Token refresh failed: ${reason}. ` +
-                  tokenFailureRemediation(options.tokenType),
+                message: `${detail}. ${refreshDetail}. ${tokenFailureRemediation(options.tokenType)}`,
                 cause: refreshError,
               }),
             );
@@ -466,7 +486,9 @@ export class EbayApiClient {
         );
       }
 
-      const detail = this.ebayErrorDetail(error.data) ?? 'Invalid access token';
+      const detail = isSellerOfferRequestUrl(url)
+        ? sellerOfferCuratedSummary({ status: error.status, failureKind: 'tokenRefresh' })
+        : (this.ebayErrorDetail(error.data) ?? 'Invalid access token');
       return Effect.fail(
         clientRequestError({
           kind: 'tokenRefresh',
@@ -520,13 +542,17 @@ export class EbayApiClient {
     }
 
     if (error.status != null) {
+      const detail = this.ebayErrorDetail(error.data) ?? error.message;
+      const message = isSellerOfferRequestUrl(url)
+        ? sellerOfferCuratedSummary({ status: error.status, failureKind: 'httpStatus' })
+        : `eBay API Error: ${detail}${this.ebayErrorBody(error.data)}`;
       return Effect.fail(
         clientRequestError({
           kind: 'httpStatus',
           method,
           url,
           status: error.status,
-          message: `eBay API Error: ${this.ebayErrorDetail(error.data) ?? error.message}${this.ebayErrorBody(error.data)}`,
+          message,
           cause: error,
         }),
       );
@@ -537,7 +563,9 @@ export class EbayApiClient {
         kind: 'transport',
         method,
         url,
-        message: error.message,
+        message: isSellerOfferRequestUrl(url)
+          ? sellerOfferCuratedSummary({ failureKind: 'transport' })
+          : error.message,
         cause: error,
       }),
     );
