@@ -307,6 +307,7 @@ describe('Tools Layer', () => {
           clearAllTokens: vi.fn(),
           getAccessToken: vi.fn().mockReturnValue(Effect.succeed('mock-access-token')),
           refreshUserToken: vi.fn().mockReturnValue(Effect.succeed(undefined)),
+          reloadUserTokensFromStore: vi.fn().mockReturnValue(Effect.succeed(false)),
         }),
       }),
     } as unknown as EbaySellerApi;
@@ -604,10 +605,29 @@ describe('Tools Layer', () => {
 
     it('throw error when refreshing without user tokens', async () => {
       vi.mocked(mockApi.hasUserTokens).mockReturnValue(false);
+      const mockAuthClient = mockApi.getAuthClient().getOAuthClient();
 
       await expect(executeTool(mockApi, 'ebay_refresh_access_token', {})).rejects.toThrow(
         'No user tokens available',
       );
+      expect(mockAuthClient.reloadUserTokensFromStore).toHaveBeenCalledWith('refresh_tool');
+      expect(mockAuthClient.refreshUserToken).not.toHaveBeenCalled();
+    });
+
+    it('recovers lost in-memory user tokens from .env before refreshing', async () => {
+      vi.mocked(mockApi.hasUserTokens).mockReturnValue(false);
+      const mockAuthClient = mockApi.getAuthClient().getOAuthClient();
+      vi.mocked(mockAuthClient.reloadUserTokensFromStore).mockReturnValue(Effect.succeed(true));
+      vi.mocked(mockAuthClient.getUserTokens).mockReturnValue({
+        userAccessToken: 'recovered-access-token-123456',
+        userAccessTokenExpiry: Date.now() + 7_200_000,
+      } as never);
+
+      const refreshOutput = await executeTool(mockApi, 'ebay_refresh_access_token', {});
+
+      expect(mockAuthClient.reloadUserTokensFromStore).toHaveBeenCalledWith('refresh_tool');
+      expect(mockAuthClient.refreshUserToken).toHaveBeenCalled();
+      expect(refreshOutput).toHaveProperty('success', true);
     });
 
     it('handle refresh token errors', async () => {

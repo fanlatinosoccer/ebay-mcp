@@ -15,6 +15,8 @@ const vitestIntegrationConfig = defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // Never let OAuth store reloads read a developer's real .env during tests.
+    setupFiles: ['./tests/helpers/isolateCredentialStore.ts'],
     include: ['tests/integration/**/*.test.ts'],
     exclude: ['node_modules', 'build', 'dist', 'tests/unit/**'],
     testTimeout: 10_000,

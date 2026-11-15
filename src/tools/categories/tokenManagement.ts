@@ -433,7 +433,11 @@ export const tokenManagementEntries: ToolEntry[] = [
       return Effect.runPromise(
         Effect.gen(function* () {
           if (!api.hasUserTokens()) {
-            return yield* Effect.fail(missingUserTokensError);
+            // Recover lost in-memory tokens from .env before reporting them missing.
+            const reloaded = yield* authClient.reloadUserTokensFromStore('refresh_tool');
+            if (!reloaded) {
+              return yield* Effect.fail(missingUserTokensError);
+            }
           }
 
           yield* authClient
