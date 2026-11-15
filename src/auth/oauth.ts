@@ -16,8 +16,12 @@ import type {
   StoredTokenData,
 } from '@/types/ebay.js';
 import { LocaleEnum } from '@/types/ebayEnums.js';
-import { getErrorMessage } from '@/utils/errors.js';
-import { describeHttpError, httpRequestEffect, type HttpRequestOptions } from '@/utils/http.js';
+import {
+  describeHttpError,
+  httpRequestEffect,
+  isHttpError,
+  type HttpRequestOptions,
+} from '@/utils/http.js';
 import { authLogger } from '@/utils/logger.js';
 import { Data, Effect, Either } from 'effect';
 
@@ -75,6 +79,92 @@ const isCredentialPersistenceError = (error: EbayOAuthError): boolean =>
   error.cause instanceof CredentialStoreError;
 
 /**
+ * Minimum time between attempts to reload user tokens from the credential
+ * store, so a genuinely revoked refresh token cannot hammer eBay's token
+ * endpoint on every API call.
+ */
+export const STORE_RELOAD_MIN_INTERVAL_MS = 30_000;
+
+/** OAuth error codes are short snake_case identifiers (e.g. `invalid_grant`). */
+const OAUTH_ERROR_CODE = /^[a-z_]{1,64}$/;
+
+/**
+ * Secret-free summary of an OAuth failure, safe to write to logs.
+ *
+ * Carries only the failing operation, a failure kind, the HTTP status, and
+ * eBay's OAuth error code. Never includes token values, request bodies,
+ * response bodies, or credentials.
+ */
+export interface OAuthFailureSummary {
+  /** OAuth client operation that failed. */
+  readonly operation: OAuthOperation;
+  /** Broad failure category. */
+  readonly kind: 'http' | 'network' | 'timeout' | 'persistence' | 'other';
+  /** HTTP status code when the token endpoint answered. */
+  readonly httpStatus?: number;
+  /** eBay OAuth error code (for example `invalid_grant`) when present. */
+  readonly oauthError?: string;
+}
+
+/**
+ * Summarize an OAuth failure for logging without leaking secrets.
+ *
+ * @param error - OAuth failure to summarize.
+ * @returns Secret-free failure summary.
+ *
+ * @example
+ * ```ts
+ * authLogger.warn('Refresh failed', { failure: summarizeOAuthFailure(error) });
+ * ```
+ */
+export const summarizeOAuthFailure = (error: EbayOAuthError): OAuthFailureSummary => {
+  const { cause, operation } = error;
+  if (cause instanceof CredentialStoreError) {
+    return { operation, kind: 'persistence' };
+  }
+  if (isHttpError(cause)) {
+    const kind = cause.isTimeout ? 'timeout' : cause.status === undefined ? 'network' : 'http';
+    const body = cause.data;
+    const code =
+      typeof body === 'object' && body !== null && 'error' in body
+        ? (body as { error?: unknown }).error
+        : undefined;
+    return {
+      operation,
+      kind,
+      ...(cause.status === undefined ? {} : { httpStatus: cause.status }),
+      ...(typeof code === 'string' && OAUTH_ERROR_CODE.test(code) ? { oauthError: code } : {}),
+    };
+  }
+  return { operation, kind: 'other' };
+};
+
+const toIsoOrNull = (timestamp: number | null | undefined): string | null =>
+  timestamp ? new Date(timestamp).toISOString() : null;
+
+/** Secret-free snapshot of the in-memory auth state, safe to write to logs. */
+export interface AuthStateSnapshot {
+  /** Whether user credentials are loaded in memory. */
+  readonly userLoaded: boolean;
+  /** Whether the loaded user access credential is unexpired. */
+  readonly userAccessValid: boolean;
+  /** Expiry of the user access credential (ISO 8601), when loaded. */
+  readonly userAccessExpiresAt: string | null;
+  /** Expiry of the user refresh credential (ISO 8601), when loaded. */
+  readonly userRefreshExpiresAt: string | null;
+  /** Whether an unexpired application credential is cached. */
+  readonly appAccessValid: boolean;
+  /** Expiry of the cached application credential (ISO 8601), when cached. */
+  readonly appAccessExpiresAt: string | null;
+}
+
+/** Outcome of resolving the user access credential for a request. */
+type UserAccessResolution =
+  | { readonly status: 'ok'; readonly accessToken: string }
+  | { readonly status: 'reauthorize' }
+  | { readonly status: 'none' };
+
+/**
  * Manages eBay OAuth 2.0 authentication
  * Loads tokens exclusively from validated runtime config
  * Supports both client credentials (app tokens) and user access tokens with refresh
@@ -83,6 +173,10 @@ export class EbayOAuthClient {
   private appAccessToken: string | null = null;
   private appAccessTokenExpiry = 0;
   private userTokens: StoredTokenData | null = null;
+  /** Timestamp of the last attempt to reload user tokens from the credential store. */
+  private lastStoreReloadAttemptAt = 0;
+  /** Set by {@link clearAllTokens} so an explicit clear is not undone by a store reload. */
+  private storeReloadSuppressed = false;
 
   constructor(
     private config: EbayConfig,
@@ -137,34 +231,183 @@ export class EbayOAuthClient {
           refreshToken: configRefreshToken,
         });
 
+        this.logAuthState('startup_user_loaded_from_config');
+
         // Immediately refresh to get a valid access token and scopes
         authLogger.info('Refreshing access token using refresh token from .env');
-        const refreshed = yield* Effect.either(
-          Effect.gen(this, function* () {
-            yield* this.refreshUserToken();
-            authLogger.info('Access token refreshed successfully');
-
-            yield* this.getOrRefreshAppAccessToken();
-          }),
-        );
+        const refreshed = yield* Effect.either(this.refreshUserToken());
 
         if (Either.isLeft(refreshed)) {
           const error = refreshed.left;
           if (isCredentialPersistenceError(error)) {
             authLogger.error('Access token refreshed but could not be persisted', {
-              error: getErrorMessage(error, String(error)),
+              failure: summarizeOAuthFailure(error),
               hint: 'The refreshed token remains available for this process, but the credential file must be writable to survive a restart',
             });
           } else {
             authLogger.error('Failed to refresh access token', {
-              error: getErrorMessage(error, String(error)),
+              failure: summarizeOAuthFailure(error),
               hint: 'The configured EBAY_USER_REFRESH_TOKEN may be invalid or expired',
             });
-            // Clear tokens only when the refresh itself failed.
+            // Clear tokens only when the user refresh itself failed. Later API
+            // calls retry by reloading from the credential store.
             this.userTokens = null;
+          }
+          this.logAuthState('startup_user_refresh_failed', 'warn', summarizeOAuthFailure(error));
+        } else {
+          authLogger.info('Access token refreshed successfully');
+          this.logAuthState('startup_user_refreshed');
+        }
+
+        if (this.userTokens) {
+          // The app token is independent of the user token: failing to mint it
+          // must never discard valid user tokens (this used to leave the process
+          // reporting hasUserToken:false and returning 403 until restart).
+          const appToken = yield* Effect.either(this.getOrRefreshAppAccessToken());
+          if (Either.isLeft(appToken)) {
+            this.logAuthState(
+              'startup_app_token_failed_user_tokens_kept',
+              'warn',
+              summarizeOAuthFailure(appToken.left),
+            );
           }
         }
       }
+    });
+
+  /**
+   * Secret-free snapshot of the in-memory auth state for logs and diagnostics.
+   *
+   * @returns Booleans and expiry times only; never token values.
+   *
+   * @example
+   * ```ts
+   * const state = oauthClient.describeAuthState();
+   * ```
+   */
+  describeAuthState(): AuthStateSnapshot {
+    const tokens = this.userTokens;
+    return {
+      userLoaded: tokens !== null,
+      userAccessValid: tokens !== null && !this.isUserAccessTokenExpired(tokens),
+      userAccessExpiresAt: toIsoOrNull(tokens?.userAccessTokenExpiry),
+      userRefreshExpiresAt: toIsoOrNull(tokens?.userRefreshTokenExpiry),
+      appAccessValid: this.appAccessToken !== null && !isTokenExpired(this.appAccessTokenExpiry),
+      appAccessExpiresAt: this.appAccessToken ? toIsoOrNull(this.appAccessTokenExpiry) : null,
+    };
+  }
+
+  /**
+   * Log an auth state transition with a secret-free state snapshot.
+   */
+  private logAuthState(
+    event: string,
+    level: 'info' | 'warn' | 'error' = 'info',
+    failure?: OAuthFailureSummary,
+  ): void {
+    authLogger[level](`Auth state: ${event}`, {
+      event,
+      ...this.describeAuthState(),
+      ...(failure ? { failure } : {}),
+    });
+  }
+
+  /**
+   * Reload user tokens from the credential store (`.env`) and refresh them.
+   *
+   * Recovers a process whose in-memory user tokens were lost (or whose refresh
+   * failed) while the credential file still holds valid credentials, without
+   * requiring a restart or re-authorization. Attempts are rate limited by
+   * {@link STORE_RELOAD_MIN_INTERVAL_MS} and skipped after {@link clearAllTokens}.
+   *
+   * @param reason - Short label recorded in the auth state log.
+   * @returns An Effect that succeeds with true when valid user tokens are loaded.
+   *
+   * @example
+   * ```ts
+   * const recovered = await Effect.runPromise(oauthClient.reloadUserTokensFromStore('manual'));
+   * ```
+   */
+  reloadUserTokensFromStore = (reason: string): Effect.Effect<boolean> =>
+    Effect.gen(this, function* () {
+      const store = this.credentialStore;
+      if (this.storeReloadSuppressed || typeof store.read !== 'function') {
+        return false;
+      }
+
+      const now = Date.now();
+      if (now - this.lastStoreReloadAttemptAt < STORE_RELOAD_MIN_INTERVAL_MS) {
+        return false;
+      }
+      this.lastStoreReloadAttemptAt = now;
+
+      const stored = yield* Effect.either(store.read());
+      if (Either.isLeft(stored)) {
+        authLogger.warn('Auth state: store_reload_read_failed', {
+          event: 'store_reload_read_failed',
+          reason,
+          ...this.describeAuthState(),
+          failure: { operation: 'getAccessToken', kind: 'persistence' },
+        });
+        return false;
+      }
+
+      const refreshToken = stored.right.EBAY_USER_REFRESH_TOKEN ?? '';
+      if (!refreshToken) {
+        authLogger.info('Auth state: store_reload_no_user_credentials', {
+          event: 'store_reload_no_user_credentials',
+          reason,
+          ...this.describeAuthState(),
+        });
+        return false;
+      }
+
+      const accessToken = stored.right.EBAY_USER_ACCESS_TOKEN ?? '';
+      const locale = this.config?.locale || LocaleEnum.en_US;
+      const previousTokens = this.userTokens;
+      this.userTokens = createStoredUserTokens({
+        config: { ...this.config, locale },
+        envAppToken: stored.right.EBAY_APP_ACCESS_TOKEN ?? this.config.appAccessToken ?? '',
+        accessToken,
+        refreshToken,
+      });
+      this.config = { ...this.config, accessToken, refreshToken };
+
+      // The stored access token's real expiry is unknown, so always refresh.
+      const refreshed = yield* Effect.either(this.refreshUserToken());
+      if (Either.isRight(refreshed)) {
+        authLogger.info('Auth state: store_reload_recovered', {
+          event: 'store_reload_recovered',
+          reason,
+          ...this.describeAuthState(),
+        });
+        return true;
+      }
+
+      const failure = summarizeOAuthFailure(refreshed.left);
+      if (
+        isCredentialPersistenceError(refreshed.left) &&
+        this.userTokens &&
+        !this.isUserAccessTokenExpired(this.userTokens)
+      ) {
+        authLogger.warn('Auth state: store_reload_recovered_not_persisted', {
+          event: 'store_reload_recovered_not_persisted',
+          reason,
+          ...this.describeAuthState(),
+          failure,
+        });
+        return true;
+      }
+
+      this.userTokens =
+        previousTokens && !this.isUserAccessTokenExpired(previousTokens) ? previousTokens : null;
+      authLogger.error('Auth state: store_reload_refresh_failed', {
+        event: 'store_reload_refresh_failed',
+        reason,
+        ...this.describeAuthState(),
+        failure,
+      });
+      return false;
     });
 
   /**
@@ -209,49 +452,19 @@ export class EbayOAuthClient {
    */
   getAccessToken = (): Effect.Effect<string, EbayOAuthError> =>
     Effect.gen(this, function* () {
-      // Try to use user token first
-      if (this.userTokens) {
-        // Check if access token is still valid
-        if (!this.isUserAccessTokenExpired(this.userTokens)) {
-          return this.userTokens.userAccessToken;
-        }
-
-        // Try to refresh if refresh token is valid
-        if (this.isUserRefreshTokenExpired(this.userTokens)) {
-          // Refresh token expired
-          authLogger.error('User refresh token expired. User needs to re-authorize.');
-          this.userTokens = null;
-          return yield* Effect.fail(
-            new EbayOAuthError({
-              operation: 'getAccessToken',
-              message:
-                'User authorization expired. Please update EBAY_USER_REFRESH_TOKEN in .env with a new refresh token.',
-            }),
-          );
-        }
-        const refreshed = yield* Effect.either(this.refreshUserToken());
-
-        if (Either.isLeft(refreshed)) {
-          if (
-            isCredentialPersistenceError(refreshed.left) &&
-            this.userTokens &&
-            !this.isUserAccessTokenExpired(this.userTokens)
-          ) {
-            authLogger.error('User token refreshed but could not be persisted', {
-              error: getErrorMessage(refreshed.left, String(refreshed.left)),
-              hint: 'Using the valid refreshed token for this process only',
-            });
-            return this.userTokens.userAccessToken;
-          }
-
-          authLogger.error('Failed to refresh user token, falling back to app access token', {
-            error: getErrorMessage(refreshed.left, String(refreshed.left)),
-          });
-          // Clear tokens only when no valid refreshed access token remains.
-          this.userTokens = null;
-        } else if (this.userTokens) {
-          return this.userTokens.userAccessToken;
-        }
+      // Try to use user token first (refreshing or reloading from .env as needed)
+      const resolution = yield* this.resolveUserAccessToken();
+      if (resolution.status === 'ok') {
+        return resolution.accessToken;
+      }
+      if (resolution.status === 'reauthorize') {
+        return yield* Effect.fail(
+          new EbayOAuthError({
+            operation: 'getAccessToken',
+            message:
+              'User authorization expired. Please update EBAY_USER_REFRESH_TOKEN in .env with a new refresh token.',
+          }),
+        );
       }
 
       // Fallback to app access token (client credentials)
@@ -260,6 +473,70 @@ export class EbayOAuthClient {
       }
 
       return yield* this.getOrRefreshAppAccessToken();
+    });
+
+  /**
+   * Resolve a valid user access token: use the cached one, refresh it, or as a
+   * last resort reload credentials from the store before giving up.
+   */
+  private resolveUserAccessToken = (): Effect.Effect<UserAccessResolution> =>
+    Effect.gen(this, function* () {
+      let refreshExpired = false;
+
+      if (this.userTokens) {
+        // Check if access token is still valid
+        if (!this.isUserAccessTokenExpired(this.userTokens)) {
+          return { status: 'ok', accessToken: this.userTokens.userAccessToken } as const;
+        }
+
+        if (this.isUserRefreshTokenExpired(this.userTokens)) {
+          authLogger.error('User refresh token expired. User needs to re-authorize.');
+          this.userTokens = null;
+          refreshExpired = true;
+          this.logAuthState('user_refresh_expired', 'error');
+        } else {
+          const refreshed = yield* Effect.either(this.refreshUserToken());
+
+          if (Either.isRight(refreshed) && this.userTokens) {
+            this.logAuthState('user_refreshed');
+            return { status: 'ok', accessToken: this.userTokens.userAccessToken } as const;
+          }
+
+          if (Either.isLeft(refreshed)) {
+            const failure = summarizeOAuthFailure(refreshed.left);
+            if (
+              isCredentialPersistenceError(refreshed.left) &&
+              this.userTokens &&
+              !this.isUserAccessTokenExpired(this.userTokens)
+            ) {
+              authLogger.error('User token refreshed but could not be persisted', {
+                failure,
+                hint: 'Using the valid refreshed token for this process only',
+              });
+              return { status: 'ok', accessToken: this.userTokens.userAccessToken } as const;
+            }
+
+            authLogger.error('Failed to refresh user token', { failure });
+            // Clear tokens only when no valid refreshed access token remains.
+            this.userTokens = null;
+            this.logAuthState('user_cleared_after_refresh_failure', 'error', failure);
+          }
+        }
+      }
+
+      // No usable user token in memory: the credential file may still hold
+      // valid credentials (written by setup or by another process).
+      const recovered = yield* this.reloadUserTokensFromStore(
+        refreshExpired ? 'refresh_expired' : 'no_user_token_in_memory',
+      );
+      if (recovered && this.userTokens && !this.isUserAccessTokenExpired(this.userTokens)) {
+        return { status: 'ok', accessToken: this.userTokens.userAccessToken } as const;
+      }
+
+      if (refreshExpired) {
+        return { status: 'reauthorize' } as const;
+      }
+      return { status: 'none' } as const;
     });
 
   /**
@@ -285,6 +562,7 @@ export class EbayOAuthClient {
     refreshTokenExpiry?: number,
   ): Effect.Effect<void, EbayOAuthError> =>
     Effect.gen(this, function* () {
+      this.storeReloadSuppressed = false;
       this.userTokens = createStoredUserTokens({
         config: this.config,
         accessToken,
@@ -436,6 +714,7 @@ export class EbayOAuthClient {
         );
       }
 
+      this.storeReloadSuppressed = false;
       this.userTokens = createStoredUserTokensFromResponse({
         config: this.config,
         tokenData,
@@ -572,6 +851,7 @@ export class EbayOAuthClient {
    * Clear all authentication tokens from memory.
    *
    * To persist this change, remove `EBAY_USER_REFRESH_TOKEN` from `.env`.
+   * Automatic reloads from `.env` stay disabled until new user tokens are set.
    *
    * @returns Nothing; the in-memory token cache is cleared synchronously.
    *
@@ -584,6 +864,9 @@ export class EbayOAuthClient {
     this.appAccessToken = null;
     this.appAccessTokenExpiry = 0;
     this.userTokens = null;
+    // An explicit clear must not be silently undone by reloading from `.env`.
+    this.storeReloadSuppressed = true;
+    this.logAuthState('tokens_cleared');
   }
 
   /**

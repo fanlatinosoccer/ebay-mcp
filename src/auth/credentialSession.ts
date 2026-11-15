@@ -52,6 +52,21 @@ export interface CredentialStore {
    * ```
    */
   write(updates: Record<string, string>): Effect.Effect<void, CredentialStoreError>;
+
+  /**
+   * Reads the current credential values from the backing store.
+   *
+   * Optional so in-memory or write-only stores keep working; when absent the
+   * OAuth client cannot recover lost in-memory user tokens from storage.
+   *
+   * @returns An Effect that succeeds with the stored variable names and values.
+   *
+   * @example
+   * ```ts
+   * const stored = yield* credentialStore.read?.();
+   * ```
+   */
+  read?(): Effect.Effect<Record<string, string>, CredentialStoreError>;
 }
 
 /**
@@ -141,6 +156,34 @@ export class DotEnvCredentialStore implements CredentialStore {
           }),
       }),
     );
+  }
+
+  /**
+   * Reads the project `.env` file fresh from disk.
+   *
+   * Used to recover user tokens when the in-memory copy was lost while the
+   * file still holds valid credentials (for example after a transient failure
+   * at startup or a token rotation by another process sharing the same file).
+   *
+   * @returns An Effect that succeeds with the parsed `.env` values (empty when the file is absent).
+   *
+   * @example
+   * ```ts
+   * const stored = yield* new DotEnvCredentialStore().read();
+   * ```
+   */
+  read(): Effect.Effect<Record<string, string>, CredentialStoreError> {
+    const envPath = this.getEnvPath();
+
+    return Effect.try({
+      try: () => (existsSync(envPath) ? dotenv.parse(readFileSync(envPath, 'utf-8')) : {}),
+      catch: (cause) =>
+        new CredentialStoreError({
+          envPath,
+          message: `Failed to read credentials from ${envPath}`,
+          cause,
+        }),
+    });
   }
 }
 

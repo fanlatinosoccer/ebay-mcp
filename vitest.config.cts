@@ -11,6 +11,8 @@ const vitestConfig = defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    // Never let OAuth store reloads read a developer's real .env during tests.
+    setupFiles: ['./tests/helpers/isolateCredentialStore.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
