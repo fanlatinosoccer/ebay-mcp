@@ -111,6 +111,30 @@ const statusBadge = (status: string | undefined): CardBadge | undefined => {
  * const view = mapOrdersToTable({ orders: [{ orderId: '12-3456' }], total: 1 });
  * ```
  */
+const uniqueNonEmpty = (values: Array<string | undefined>): string | null => {
+  const seen = new Set<string>();
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      seen.add(trimmed);
+    }
+  }
+  return seen.size > 0 ? [...seen].join(', ') : null;
+};
+
+const orderShippingSummary = (order: Order) => {
+  const instructions = order.fulfillmentStartInstructions ?? [];
+  return {
+    shippingServiceCode: uniqueNonEmpty(
+      instructions.map((instruction) => instruction.shippingStep?.shippingServiceCode),
+    ),
+    shippingCarrierCode: uniqueNonEmpty(
+      instructions.map((instruction) => instruction.shippingStep?.shippingCarrierCode),
+    ),
+    deliveryCost: formatAmount(order.pricingSummary?.deliveryCost),
+  };
+};
+
 export const mapOrdersToTable = (orderPage: OrderSearchPagedCollection): TableViewModel => {
   const orders = orderPage.orders ?? [];
   return {
@@ -122,22 +146,31 @@ export const mapOrdersToTable = (orderPage: OrderSearchPagedCollection): TableVi
       { key: 'fulfillment', label: 'Fulfillment' },
       { key: 'payment', label: 'Payment' },
       { key: 'buyer', label: 'Buyer' },
+      { key: 'shippingServiceCode', label: 'Shipping service' },
+      { key: 'shippingCarrierCode', label: 'Carrier' },
+      { key: 'deliveryCost', label: 'Delivery cost', align: 'right' },
       { key: 'total', label: 'Total', align: 'right' },
     ],
-    rows: orders.map((order, index) => ({
-      id: order.orderId ?? `order-${index}`,
-      cells: {
-        orderId: order.orderId ?? null,
-        creationDate: order.creationDate ?? null,
-        fulfillment: humanizeStatus(order.orderFulfillmentStatus),
-        payment: humanizeStatus(order.orderPaymentStatus),
-        buyer: order.buyer?.username ?? null,
-        total: formatAmount(order.pricingSummary?.total),
-      },
-      drill: order.orderId
-        ? { tool: 'ebay_get_order', arguments: { orderId: order.orderId }, label: 'View order' }
-        : undefined,
-    })),
+    rows: orders.map((order, index) => {
+      const shipping = orderShippingSummary(order);
+      return {
+        id: order.orderId ?? `order-${index}`,
+        cells: {
+          orderId: order.orderId ?? null,
+          creationDate: order.creationDate ?? null,
+          fulfillment: humanizeStatus(order.orderFulfillmentStatus),
+          payment: humanizeStatus(order.orderPaymentStatus),
+          buyer: order.buyer?.username ?? null,
+          shippingServiceCode: shipping.shippingServiceCode,
+          shippingCarrierCode: shipping.shippingCarrierCode,
+          deliveryCost: shipping.deliveryCost,
+          total: formatAmount(order.pricingSummary?.total),
+        },
+        drill: order.orderId
+          ? { tool: 'ebay_get_order', arguments: { orderId: order.orderId }, label: 'View order' }
+          : undefined,
+      };
+    }),
     footnote: footnoteFor(orders.length, orderPage.total),
   };
 };
@@ -367,6 +400,7 @@ export const mapDisputeSummariesToTable = (
  */
 export const mapOrderToCard = (order: Order): CardViewModel => {
   const lineItems = order.lineItems ?? [];
+  const shipping = orderShippingSummary(order);
   const badges: CardBadge[] = [];
   const fulfillmentBadge = statusBadge(order.orderFulfillmentStatus);
   if (fulfillmentBadge) {
@@ -388,6 +422,14 @@ export const mapOrderToCard = (order: Order): CardViewModel => {
           { label: 'Created', value: order.creationDate ?? null },
           { label: 'Total', value: formatAmount(order.pricingSummary?.total) },
           { label: 'Line items', value: lineItems.length },
+        ],
+      },
+      {
+        heading: 'Shipping',
+        fields: [
+          { label: 'Shipping service', value: shipping.shippingServiceCode },
+          { label: 'Carrier', value: shipping.shippingCarrierCode },
+          { label: 'Delivery cost', value: shipping.deliveryCost },
         ],
       },
       {
