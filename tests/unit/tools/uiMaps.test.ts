@@ -119,7 +119,22 @@ describe('table mappers', () => {
           orderFulfillmentStatus: 'FULFILLED',
           orderPaymentStatus: 'PAID',
           buyer: { username: 'buyer1' },
-          pricingSummary: { total: { value: '25.99', currency: 'USD' } },
+          pricingSummary: {
+            total: { value: '25.99', currency: 'USD' },
+            deliveryCost: { value: '5.50', currency: 'USD' },
+          },
+          fulfillmentStartInstructions: [
+            {
+              shippingStep: {
+                shippingServiceCode: 'USPSParcel',
+                shippingCarrierCode: 'USPS',
+                shipTo: {
+                  fullName: 'Secret Buyer',
+                  contactAddress: { addressLine1: '123 Secret St', postalCode: '90210' },
+                },
+              },
+            },
+          ],
         },
       ],
       total: 240,
@@ -132,13 +147,22 @@ describe('table mappers', () => {
       'fulfillment',
       'payment',
       'buyer',
+      'shippingServiceCode',
+      'shippingCarrierCode',
+      'deliveryCost',
       'total',
     ]);
     expect(view.rows).toHaveLength(1);
     const [row] = view.rows;
     expect(row.id).toBe('12-3456');
     expect(row.cells.fulfillment).toBe('Fulfilled');
+    expect(row.cells.shippingServiceCode).toBe('USPSParcel');
+    expect(row.cells.shippingCarrierCode).toBe('USPS');
+    expect(row.cells.deliveryCost).toBe('5.50 USD');
     expect(row.cells.total).toBe('25.99 USD');
+    expect(JSON.stringify(view)).not.toContain('Secret Buyer');
+    expect(JSON.stringify(view)).not.toContain('123 Secret St');
+    expect(JSON.stringify(view)).not.toContain('90210');
     expect(row.drill).toEqual({
       tool: 'ebay_get_order',
       arguments: { orderId: '12-3456' },
@@ -281,8 +305,65 @@ describe('card mappers', () => {
     ]);
     const summary = view.sections.find((section) => section.heading === 'Summary');
     expect(summary?.fields).toContainEqual({ label: 'Total', value: '25.99 USD' });
+    const shipping = view.sections.find((section) => section.heading === 'Shipping');
+    expect(shipping?.fields).toEqual([
+      { label: 'Shipping service', value: null },
+      { label: 'Carrier', value: null },
+      { label: 'Delivery cost', value: null },
+    ]);
     const items = view.sections.find((section) => section.heading === 'Items');
     expect(items?.fields[0]).toEqual({ label: 'Widget', value: '×2' });
+  });
+
+  it('exposes shippingServiceCode, shippingCarrierCode, and deliveryCost without shipTo PII', () => {
+    const view = mapOrderToCard({
+      orderId: '15-15342-65301',
+      buyer: { username: 'buyer1' },
+      pricingSummary: {
+        total: { value: '89.00', currency: 'USD' },
+        deliveryCost: { value: '12.50', currency: 'USD' },
+      },
+      fulfillmentStartInstructions: [
+        {
+          shippingStep: {
+            shippingServiceCode: 'UPSWorldwideSaver',
+            shippingCarrierCode: 'UPS',
+            shipTo: {
+              fullName: 'Private Name',
+              primaryPhone: { phoneNumber: '555-0199' },
+              email: 'private@example.com',
+              contactAddress: {
+                addressLine1: '999 Private Ave',
+                city: 'Miami',
+                postalCode: '33101',
+              },
+            },
+          },
+        },
+        {
+          shippingStep: {
+            shippingServiceCode: 'UPSWorldwideSaver',
+            shippingCarrierCode: 'UPS',
+          },
+        },
+      ],
+    });
+    const shipping = view.sections.find((section) => section.heading === 'Shipping');
+    expect(shipping?.fields).toEqual([
+      { label: 'Shipping service', value: 'UPSWorldwideSaver' },
+      { label: 'Carrier', value: 'UPS' },
+      { label: 'Delivery cost', value: '12.50 USD' },
+    ]);
+    const serialized = JSON.stringify(view);
+    for (const pii of [
+      'Private Name',
+      '555-0199',
+      'private@example.com',
+      '999 Private Ave',
+      '33101',
+    ]) {
+      expect(serialized).not.toContain(pii);
+    }
   });
 
   it('maps an offer to a detail card', () => {
