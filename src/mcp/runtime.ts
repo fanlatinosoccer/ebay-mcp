@@ -4,6 +4,7 @@ import { EbaySellerApi } from '@/api/ebaySellerApi.js';
 import { getEbayConfig, mcpConfig } from '@/config/environment.js';
 import { resolveToolGatingMode } from '@/config/toolFamilies.js';
 import { isReadOnlyModeEnabled, isReadOnlyTool } from '@/mcp/readOnlyFilter.js';
+import { applyToolListFilter, getToolListConfig } from '@/mcp/toolListFilter.js';
 import {
   createToolGatingController,
   DYNAMIC_MODE_INSTRUCTIONS,
@@ -181,6 +182,49 @@ export const createEbayMcpRuntime = (options: EbayMcpRuntimeOptions = {}): EbayM
   if (isReadOnlyModeEnabled()) {
     entries = entries.filter((entry) => isReadOnlyTool(entry.definition));
     serverLogger.info(`EBAY_READ_ONLY: filtered to ${entries.length} read-only tools`);
+  }
+
+  // Third gate: name-level allowlist/denylist, plus a hard refusal to start when
+  // EBAY_FORBID_TOKEN_TOOLS is set and any token-management tool would load.
+  // Unset config is a no-op, so default boot stays byte-for-byte unchanged.
+  {
+    const listConfig = getToolListConfig();
+    const before = entries.length;
+    const result = applyToolListFilter(entries, listConfig);
+    ({ entries } = result);
+    if (listConfig.allow || listConfig.deny.size > 0) {
+      serverLogger.info(
+        `EBAY_MCP_TOOL_ALLOWLIST/DENYLIST: ${entries.length} of ${before} tools kept (allowlist ${listConfig.allow ? listConfig.allow.size : 'unset'}, denylist ${listConfig.deny.size})`,
+      );
+    }
+    const catalogNames = new Set(allEntries.map((entry) => entry.definition.name));
+    const typoAllowed = result.unknownAllowed.filter((name) => !catalogNames.has(name));
+    const excludedByPriorGate = result.unknownAllowed.filter((name) => catalogNames.has(name));
+    if (typoAllowed.length > 0) {
+      throw new Error(
+        `EBAY_MCP_TOOL_ALLOWLIST contains unknown tool names: ${typoAllowed.join(', ')}.`,
+      );
+    }
+    if (excludedByPriorGate.length > 0) {
+      serverLogger.warn(
+        `EBAY_MCP_TOOL_ALLOWLIST names excluded by EBAY_MCP_TOOLS or EBAY_READ_ONLY: ${excludedByPriorGate.join(', ')}`,
+      );
+    }
+    if (result.unknownDenied.length > 0) {
+      const typoDenied = result.unknownDenied.filter((name) => !catalogNames.has(name));
+      const excludedDenied = result.unknownDenied.filter((name) => catalogNames.has(name));
+      if (typoDenied.length > 0) {
+        serverLogger.warn(`EBAY_MCP_TOOL_DENYLIST names no catalog tool: ${typoDenied.join(', ')}`);
+      }
+      if (excludedDenied.length > 0) {
+        serverLogger.warn(
+          `EBAY_MCP_TOOL_DENYLIST names excluded by a prior gate: ${excludedDenied.join(', ')}`,
+        );
+      }
+    }
+    if (listConfig.forbidTokenTools) {
+      serverLogger.info('EBAY_FORBID_TOKEN_TOOLS: verified no token-management tools are loaded');
+    }
   }
 
   const handles = new Map<string, RegisteredTool>();
