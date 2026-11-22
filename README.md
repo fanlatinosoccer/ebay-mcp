@@ -417,6 +417,18 @@ By default all tools are advertised to the agent at once. On a long conversation
 
 The family list is literal — you get exactly what you name. ChatGPT connectors need the `connector` family (its `search`/`fetch` tools); add it explicitly, e.g. `EBAY_MCP_TOOLS=connector,inventory`. An unknown family name fails fast at startup with the valid list. Valid families: `connector`, `token-management`, `account`, `finances`, `inventory`, `feed`, `stores`, `fulfillment`, `logistics`, `marketing`, `analytics`, `metadata`, `taxonomy`, `communication`, `browse`, `other`, `developer`, `trading`.
 
+### Name-level allowlist (`EBAY_MCP_TOOL_ALLOWLIST`)
+
+After family selection and `EBAY_READ_ONLY`, you can freeze the catalogue to exact tool names. Unset (the default) leaves every remaining tool in place.
+
+| Env | Behavior |
+| --- | --- |
+| `EBAY_MCP_TOOL_ALLOWLIST` | Comma-separated tool names. When set, only those tools load. A typo (name not in the catalogue) fails fast at startup. |
+| `EBAY_MCP_TOOL_DENYLIST` | Comma-separated tool names that never load. Deny wins over allow. |
+| `EBAY_FORBID_TOKEN_TOOLS=true` | Startup fails if any `token-management` tool would still load. |
+
+Aliases `EBAY_TOOL_ALLOWLIST` and `EBAY_TOOL_DENYLIST` are accepted when the `EBAY_MCP_TOOL_*` names are unset. Do not put these in a shared `.env` if several agents share one process; set them on the MCP server entry for that agent instead. FLS per-agent lists: `docs/FLS_AGENT_TOOLSETS.md`.
+
 ### Authentication & rate limits
 
 | Mode                             | Daily limit     | Best for                | Setup                             |

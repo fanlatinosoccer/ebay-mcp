@@ -26,6 +26,9 @@ export EBAY_MCP_MEDIA_DIRS=/workspace/fls/ebay-drafts:/workspace/fls/ebay-assets
 export EBAY_ENVIRONMENT=production
 export EBAY_MARKETPLACE_ID=EBAY_US
 export EBAY_CONTENT_LANGUAGE=en-US
+# Do not set EBAY_MCP_TOOLS / EBAY_MCP_TOOL_ALLOWLIST here or in the shared .env:
+# this launcher is used by the box-wide user-ebay-fls process. Per-agent filters
+# belong on a dedicated MCP server entry so other agents stay on the full catalogue.
 # sanity without printing secrets
 python3 - <<'PY'
 import os, sys

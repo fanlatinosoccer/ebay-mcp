@@ -70,6 +70,11 @@ describe('createEbayMcpRuntime — tool gating', () => {
     // Stub only the gating key (not the whole process.env object) so dotenv-injected
     // config from other modules survives across tests in the same worker.
     vi.stubEnv('EBAY_MCP_TOOLS', undefined);
+    vi.stubEnv('EBAY_MCP_TOOL_ALLOWLIST', undefined);
+    vi.stubEnv('EBAY_MCP_TOOL_DENYLIST', undefined);
+    vi.stubEnv('EBAY_TOOL_ALLOWLIST', undefined);
+    vi.stubEnv('EBAY_TOOL_DENYLIST', undefined);
+    vi.stubEnv('EBAY_FORBID_TOKEN_TOOLS', undefined);
     vi.clearAllMocks();
     mcpMock.state.handles = [];
     mcpMock.state.constructorArgs = [];
@@ -152,5 +157,24 @@ describe('createEbayMcpRuntime — tool gating', () => {
 
     expect(mcpMock.registerTool).toHaveBeenCalledTimes(expected.length);
     expect(expected.length).toBeLessThan(inventoryCount);
+  });
+
+  it('name allowlist keeps only the named tools and leaves handshake unchanged', async () => {
+    vi.stubEnv('EBAY_MCP_TOOL_ALLOWLIST', 'ebay_get_orders,ebay_get_order');
+    const { createEbayMcpRuntime } = await import('@/mcp/runtime.js');
+    createEbayMcpRuntime({ api: fakeApi, serverConfig });
+
+    expect(mcpMock.registerTool).toHaveBeenCalledTimes(2);
+    expect(mcpMock.state.handles.map((handle) => handle.name).sort()).toEqual([
+      'ebay_get_order',
+      'ebay_get_orders',
+    ]);
+    expect(mcpMock.state.constructorArgs[0]).toEqual([serverConfig, undefined]);
+  });
+
+  it('fails fast on typoed allowlist names', async () => {
+    vi.stubEnv('EBAY_MCP_TOOL_ALLOWLIST', 'ebay_get_orders,ebay_typo_tool');
+    const { createEbayMcpRuntime } = await import('@/mcp/runtime.js');
+    expect(() => createEbayMcpRuntime({ api: fakeApi, serverConfig })).toThrow(/ebay_typo_tool/);
   });
 });

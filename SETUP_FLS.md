@@ -50,9 +50,14 @@ Recommended for FLS:
 | `EBAY_MARKETPLACE_ID` | `EBAY_US` |
 | `EBAY_CONTENT_LANGUAGE` | `en-US` |
 | `EBAY_READ_ONLY` | `true` until mutating tools are intentional |
-| `EBAY_MCP_TOOLS` | `inventory,fulfillment,marketing,analytics,account,developer,token-management` (or `all`) |
+| `EBAY_MCP_TOOLS` | `all` (default, unset) or a family list; see README. Do **not** put a list in the shared `.env`. |
+| `EBAY_MCP_TOOL_ALLOWLIST` | Optional comma-separated tool names. Unset = no extra filter. Prefer this for per-agent opt-in. |
+| `EBAY_MCP_TOOL_DENYLIST` | Optional comma-separated tool names that never load. |
+| `EBAY_FORBID_TOKEN_TOOLS` | Optional; `true` aborts startup if any token-management tool would load. |
 
 Optional / auto-managed: `EBAY_USER_ACCESS_TOKEN`, `EBAY_APP_ACCESS_TOKEN` (server refreshes these).
+
+Per-agent proposed lists and how to opt in / revert: `docs/FLS_AGENT_TOOLSETS.md`. The live box process (`user-ebay-fls`, `node build/index.js` in `/workspace/fls/ebay-mcp`) is shared by every FLS agent and currently advertises all 386 tools. Putting a filter in the shared `.env` would change every agent at once — do not do that.
 
 See also `.env.example` in this directory (placeholders only).
 
