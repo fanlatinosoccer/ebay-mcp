@@ -36,6 +36,7 @@ import type { DeveloperAnalyticsComponents } from '@/types/application-settings/
 import type { components as AnalyticsSchemas } from '@/types/sell-apps/analytics-and-report/sellAnalyticsV1Oas3.js';
 import type { components as InventorySchemas } from '@/types/sell-apps/listing-management/sellInventoryV1Oas3.js';
 import type { components as FulfillmentSchemas } from '@/types/sell-apps/order-management/sellFulfillmentV1Oas3.js';
+import process from 'node:process';
 
 type Order = FulfillmentSchemas['schemas']['Order'];
 type OrderSearchPagedCollection = FulfillmentSchemas['schemas']['OrderSearchPagedCollection'];
@@ -122,8 +123,44 @@ const uniqueNonEmpty = (values: Array<string | undefined>): string | null => {
   return seen.size > 0 ? [...seen].join(', ') : null;
 };
 
+interface OrderViewOptions {
+  /** Override `EBAY_MCP_REDACT_SHIP_TO` for tests or per-agent redaction. */
+  includeShipTo?: boolean;
+}
+
+const isShipToRedacted = (): boolean => {
+  const flag = process.env.EBAY_MCP_REDACT_SHIP_TO?.trim().toLowerCase();
+  return flag === 'true' || flag === '1' || flag === 'yes';
+};
+
+const formatShipToAddress = (
+  address: NonNullable<
+    NonNullable<
+      NonNullable<Order['fulfillmentStartInstructions']>[number]['shippingStep']
+    >['shipTo']
+  >['contactAddress'],
+): string | undefined => {
+  if (!address) {
+    return;
+  }
+  const region = [address.stateOrProvince?.trim(), address.postalCode?.trim()]
+    .filter(Boolean)
+    .join(' ');
+  const parts = [
+    address.addressLine1?.trim(),
+    address.addressLine2?.trim(),
+    address.city?.trim(),
+    region || undefined,
+    address.countryCode?.trim(),
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(', ') : undefined;
+};
+
 const orderShippingSummary = (order: Order) => {
   const instructions = order.fulfillmentStartInstructions ?? [];
+  const shipTos = instructions
+    .map((instruction) => instruction.shippingStep?.shipTo)
+    .filter((shipTo): shipTo is NonNullable<typeof shipTo> => Boolean(shipTo));
   return {
     shippingServiceCode: uniqueNonEmpty(
       instructions.map((instruction) => instruction.shippingStep?.shippingServiceCode),
@@ -132,11 +169,35 @@ const orderShippingSummary = (order: Order) => {
       instructions.map((instruction) => instruction.shippingStep?.shippingCarrierCode),
     ),
     deliveryCost: formatAmount(order.pricingSummary?.deliveryCost),
+    shipToName: uniqueNonEmpty(shipTos.map((shipTo) => shipTo.fullName)),
+    shipToCompany: uniqueNonEmpty(shipTos.map((shipTo) => shipTo.companyName)),
+    shipToAddressLine1: uniqueNonEmpty(
+      shipTos.map((shipTo) => shipTo.contactAddress?.addressLine1),
+    ),
+    shipToAddressLine2: uniqueNonEmpty(
+      shipTos.map((shipTo) => shipTo.contactAddress?.addressLine2),
+    ),
+    shipToCity: uniqueNonEmpty(shipTos.map((shipTo) => shipTo.contactAddress?.city)),
+    shipToStateOrProvince: uniqueNonEmpty(
+      shipTos.map((shipTo) => shipTo.contactAddress?.stateOrProvince),
+    ),
+    shipToPostalCode: uniqueNonEmpty(shipTos.map((shipTo) => shipTo.contactAddress?.postalCode)),
+    shipToCountryCode: uniqueNonEmpty(shipTos.map((shipTo) => shipTo.contactAddress?.countryCode)),
+    shipToAddress: uniqueNonEmpty(
+      shipTos.map((shipTo) => formatShipToAddress(shipTo.contactAddress)),
+    ),
+    shipToReferenceId: uniqueNonEmpty(
+      instructions.map((instruction) => instruction.shippingStep?.shipToReferenceId),
+    ),
   };
 };
 
-export const mapOrdersToTable = (orderPage: OrderSearchPagedCollection): TableViewModel => {
+export const mapOrdersToTable = (
+  orderPage: OrderSearchPagedCollection,
+  options: OrderViewOptions = {},
+): TableViewModel => {
   const orders = orderPage.orders ?? [];
+  const includeShipTo = options.includeShipTo ?? !isShipToRedacted();
   return {
     archetype: 'table',
     title: 'Orders',
@@ -148,8 +209,14 @@ export const mapOrdersToTable = (orderPage: OrderSearchPagedCollection): TableVi
       { key: 'buyer', label: 'Buyer' },
       { key: 'shippingServiceCode', label: 'Shipping service' },
       { key: 'shippingCarrierCode', label: 'Carrier' },
-      { key: 'deliveryCost', label: 'Delivery cost', align: 'right' },
-      { key: 'total', label: 'Total', align: 'right' },
+      ...(includeShipTo
+        ? [
+            { key: 'shipToName', label: 'Ship to' },
+            { key: 'shipToAddress', label: 'Ship to address' },
+          ]
+        : []),
+      { key: 'deliveryCost', label: 'Delivery cost', align: 'right' as const },
+      { key: 'total', label: 'Total', align: 'right' as const },
     ],
     rows: orders.map((order, index) => {
       const shipping = orderShippingSummary(order);
@@ -163,6 +230,12 @@ export const mapOrdersToTable = (orderPage: OrderSearchPagedCollection): TableVi
           buyer: order.buyer?.username ?? null,
           shippingServiceCode: shipping.shippingServiceCode,
           shippingCarrierCode: shipping.shippingCarrierCode,
+          ...(includeShipTo
+            ? {
+                shipToName: shipping.shipToName ?? shipping.shipToCompany,
+                shipToAddress: shipping.shipToAddress,
+              }
+            : {}),
           deliveryCost: shipping.deliveryCost,
           total: formatAmount(order.pricingSummary?.total),
         },
@@ -398,9 +471,10 @@ export const mapDisputeSummariesToTable = (
  * const view = mapOrderToCard({ orderId: '12-3456' });
  * ```
  */
-export const mapOrderToCard = (order: Order): CardViewModel => {
+export const mapOrderToCard = (order: Order, options: OrderViewOptions = {}): CardViewModel => {
   const lineItems = order.lineItems ?? [];
   const shipping = orderShippingSummary(order);
+  const includeShipTo = options.includeShipTo ?? !isShipToRedacted();
   const badges: CardBadge[] = [];
   const fulfillmentBadge = statusBadge(order.orderFulfillmentStatus);
   if (fulfillmentBadge) {
@@ -410,36 +484,57 @@ export const mapOrderToCard = (order: Order): CardViewModel => {
   if (paymentBadge) {
     badges.push(paymentBadge);
   }
+  const sections: CardSection[] = [
+    {
+      heading: 'Summary',
+      fields: [
+        { label: 'Buyer', value: order.buyer?.username ?? null },
+        { label: 'Created', value: order.creationDate ?? null },
+        { label: 'Total', value: formatAmount(order.pricingSummary?.total) },
+        { label: 'Line items', value: lineItems.length },
+      ],
+    },
+    {
+      heading: 'Shipping',
+      fields: [
+        { label: 'Shipping service', value: shipping.shippingServiceCode },
+        { label: 'Carrier', value: shipping.shippingCarrierCode },
+        { label: 'Delivery cost', value: shipping.deliveryCost },
+      ],
+    },
+  ];
+  if (includeShipTo) {
+    sections.push({
+      heading: 'Ship to',
+      fields: [
+        { label: 'Recipient', value: shipping.shipToName },
+        ...(shipping.shipToCompany ? [{ label: 'Company', value: shipping.shipToCompany }] : []),
+        { label: 'Address line 1', value: shipping.shipToAddressLine1 },
+        { label: 'Address line 2', value: shipping.shipToAddressLine2 },
+        { label: 'City', value: shipping.shipToCity },
+        { label: 'State / Province', value: shipping.shipToStateOrProvince },
+        { label: 'Postal code', value: shipping.shipToPostalCode },
+        { label: 'Country', value: shipping.shipToCountryCode },
+        { label: 'Full address', value: shipping.shipToAddress },
+        ...(shipping.shipToReferenceId
+          ? [{ label: 'Ship-to reference', value: shipping.shipToReferenceId }]
+          : []),
+      ],
+    });
+  }
+  sections.push({
+    heading: 'Items',
+    fields: lineItems.map((lineItem) => ({
+      label: truncate(lineItem.title, 60) || lineItem.sku || '',
+      value: lineItem.quantity == null ? null : `×${lineItem.quantity}`,
+    })),
+  });
   return {
     archetype: 'card',
     title: order.orderId ? `Order ${order.orderId}` : 'Order',
     subtitle: order.buyer?.username ? `Buyer: ${order.buyer.username}` : undefined,
     badges,
-    sections: [
-      {
-        heading: 'Summary',
-        fields: [
-          { label: 'Created', value: order.creationDate ?? null },
-          { label: 'Total', value: formatAmount(order.pricingSummary?.total) },
-          { label: 'Line items', value: lineItems.length },
-        ],
-      },
-      {
-        heading: 'Shipping',
-        fields: [
-          { label: 'Shipping service', value: shipping.shippingServiceCode },
-          { label: 'Carrier', value: shipping.shippingCarrierCode },
-          { label: 'Delivery cost', value: shipping.deliveryCost },
-        ],
-      },
-      {
-        heading: 'Items',
-        fields: lineItems.map((lineItem) => ({
-          label: truncate(lineItem.title, 60) || lineItem.sku || '',
-          value: lineItem.quantity == null ? null : `×${lineItem.quantity}`,
-        })),
-      },
-    ],
+    sections,
   };
 };
 
@@ -772,3 +867,5 @@ export const mapUserRateLimitsToStat = (rateLimitReport: RateLimitsResponse): St
   title: 'User rate limits',
   tiles: rateLimitTiles(rateLimitReport),
 });
+
+export type { OrderViewOptions };

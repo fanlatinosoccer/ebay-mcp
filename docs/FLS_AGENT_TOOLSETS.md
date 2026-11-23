@@ -94,3 +94,11 @@ ebay_get_orders,ebay_get_order,ebay_get_payment_dispute_summaries,ebay_get_payme
 ## Azure (`user-ebay-fls-azure`)
 
 Container App `fls-ebay-mcp` serves the HTTP MCP (read-only image from the `fls/azure-container` line, which is **not** merged into `fls/custom`). It already supports `EBAY_MCP_TOOLS` and `EBAY_READ_ONLY` if that image is current enough. After this commit is in the image it will also honor `EBAY_MCP_TOOL_ALLOWLIST`. No Azure setting is changed in this step ($0). To use it later: set the env on that Container App or a dedicated revision, then restart only that app — not the box STDIO process.
+
+## Buyer shipping PII (`shipTo`) and NSEF-3 limits
+
+`ebay_get_order` and `ebay_get_orders` expose `fulfillmentStartInstructions[].shippingStep.shipTo` (recipient name and shipping address, excluding phone/email) plus `buyer.username` in MCP Apps structured content so fulfillment (`LucIA`) can verify shipping addresses directly without falling back to Seller Hub or misreporting API restrictions.
+
+**PII handling rule:** Buyer names and addresses are PII and may **only** be used for shipping/fulfillment. Never send buyer addresses to non-shipping third parties.
+
+**Current shared-process risk:** Because NSEF-3 per-agent connector entries are not yet wired on the box (`user-ebay-fls` is still one shared STDIO process for every agent), and because all 7 proposed agent toolsets above include `ebay_get_orders` / `ebay_get_order`, tool-name allowlisting alone does not restrict `shipTo` to fulfillment agents. When dedicated per-agent entries are configured, set `"EBAY_MCP_REDACT_SHIP_TO": "true"` on non-fulfillment agent entries (Matias, Paola, Mariana, TanIA, FanIA, AlexIA) to omit `shipTo` fields from their order views while keeping `shipTo` enabled for LucIA and Natalia.
