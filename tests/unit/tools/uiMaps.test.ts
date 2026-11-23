@@ -24,6 +24,7 @@ import {
   mapTrafficReportToChart,
   mapUserRateLimitsToStat,
 } from '@/tools/ui/maps.js';
+import process from 'node:process';
 
 /**
  * Builds a traffic-report `Value` leaf. The OpenAPI generator types the leaf as
@@ -129,8 +130,17 @@ describe('table mappers', () => {
                 shippingServiceCode: 'USPSParcel',
                 shippingCarrierCode: 'USPS',
                 shipTo: {
-                  fullName: 'Secret Buyer',
-                  contactAddress: { addressLine1: '123 Secret St', postalCode: '90210' },
+                  fullName: 'Chris Garcia',
+                  primaryPhone: { phoneNumber: '555-0100' },
+                  email: 'buyer1@example.com',
+                  contactAddress: {
+                    addressLine1: '10 City Pt',
+                    addressLine2: 'Apt 21Q',
+                    city: 'Brooklyn',
+                    stateOrProvince: 'NY',
+                    postalCode: '11201-5384',
+                    countryCode: 'US',
+                  },
                 },
               },
             },
@@ -149,6 +159,8 @@ describe('table mappers', () => {
       'buyer',
       'shippingServiceCode',
       'shippingCarrierCode',
+      'shipToName',
+      'shipToAddress',
       'deliveryCost',
       'total',
     ]);
@@ -156,13 +168,15 @@ describe('table mappers', () => {
     const [row] = view.rows;
     expect(row.id).toBe('12-3456');
     expect(row.cells.fulfillment).toBe('Fulfilled');
+    expect(row.cells.buyer).toBe('buyer1');
     expect(row.cells.shippingServiceCode).toBe('USPSParcel');
     expect(row.cells.shippingCarrierCode).toBe('USPS');
+    expect(row.cells.shipToName).toBe('Chris Garcia');
+    expect(row.cells.shipToAddress).toBe('10 City Pt, Apt 21Q, Brooklyn, NY 11201-5384, US');
     expect(row.cells.deliveryCost).toBe('5.50 USD');
     expect(row.cells.total).toBe('25.99 USD');
-    expect(JSON.stringify(view)).not.toContain('Secret Buyer');
-    expect(JSON.stringify(view)).not.toContain('123 Secret St');
-    expect(JSON.stringify(view)).not.toContain('90210');
+    expect(JSON.stringify(view)).not.toContain('555-0100');
+    expect(JSON.stringify(view)).not.toContain('buyer1@example.com');
     expect(row.drill).toEqual({
       tool: 'ebay_get_order',
       arguments: { orderId: '12-3456' },
@@ -315,8 +329,69 @@ describe('card mappers', () => {
     expect(items?.fields[0]).toEqual({ label: 'Widget', value: '×2' });
   });
 
-  it('exposes shippingServiceCode, shippingCarrierCode, and deliveryCost without shipTo PII', () => {
+  it('exposes buyer username, shipping metadata, and shipTo name/address without phone or email', () => {
     const view = mapOrderToCard({
+      orderId: '16-15454-67598',
+      buyer: { username: 'buyer1' },
+      pricingSummary: {
+        total: { value: '189.00', currency: 'USD' },
+        deliveryCost: { value: '0.00', currency: 'USD' },
+      },
+      fulfillmentStartInstructions: [
+        {
+          shippingStep: {
+            shippingServiceCode: 'USPSParcel',
+            shippingCarrierCode: 'USPS',
+            shipTo: {
+              fullName: 'Chris Garcia',
+              primaryPhone: { phoneNumber: '555-0199' },
+              email: 'private@example.com',
+              contactAddress: {
+                addressLine1: '10 City Pt',
+                addressLine2: 'Apt 21Q',
+                city: 'Brooklyn',
+                stateOrProvince: 'NY',
+                postalCode: '11201-5384',
+                countryCode: 'US',
+              },
+            },
+          },
+        },
+        {
+          shippingStep: {
+            shippingServiceCode: 'USPSParcel',
+            shippingCarrierCode: 'USPS',
+          },
+        },
+      ],
+    });
+    const summary = view.sections.find((section) => section.heading === 'Summary');
+    expect(summary?.fields).toContainEqual({ label: 'Buyer', value: 'buyer1' });
+    const shipping = view.sections.find((section) => section.heading === 'Shipping');
+    expect(shipping?.fields).toEqual([
+      { label: 'Shipping service', value: 'USPSParcel' },
+      { label: 'Carrier', value: 'USPS' },
+      { label: 'Delivery cost', value: '0.00 USD' },
+    ]);
+    const shipTo = view.sections.find((section) => section.heading === 'Ship to');
+    expect(shipTo?.fields).toEqual([
+      { label: 'Recipient', value: 'Chris Garcia' },
+      { label: 'Address line 1', value: '10 City Pt' },
+      { label: 'Address line 2', value: 'Apt 21Q' },
+      { label: 'City', value: 'Brooklyn' },
+      { label: 'State / Province', value: 'NY' },
+      { label: 'Postal code', value: '11201-5384' },
+      { label: 'Country', value: 'US' },
+      { label: 'Full address', value: '10 City Pt, Apt 21Q, Brooklyn, NY 11201-5384, US' },
+    ]);
+    const serialized = JSON.stringify(view);
+    for (const omitted of ['555-0199', 'private@example.com']) {
+      expect(serialized).not.toContain(omitted);
+    }
+  });
+
+  it('redacts shipTo PII when includeShipTo is false or EBAY_MCP_REDACT_SHIP_TO=true', () => {
+    const sampleOrder = {
       orderId: '15-15342-65301',
       buyer: { username: 'buyer1' },
       pricingSummary: {
@@ -330,8 +405,6 @@ describe('card mappers', () => {
             shippingCarrierCode: 'UPS',
             shipTo: {
               fullName: 'Private Name',
-              primaryPhone: { phoneNumber: '555-0199' },
-              email: 'private@example.com',
               contactAddress: {
                 addressLine1: '999 Private Ave',
                 city: 'Miami',
@@ -340,29 +413,30 @@ describe('card mappers', () => {
             },
           },
         },
-        {
-          shippingStep: {
-            shippingServiceCode: 'UPSWorldwideSaver',
-            shippingCarrierCode: 'UPS',
-          },
-        },
       ],
-    });
-    const shipping = view.sections.find((section) => section.heading === 'Shipping');
-    expect(shipping?.fields).toEqual([
-      { label: 'Shipping service', value: 'UPSWorldwideSaver' },
-      { label: 'Carrier', value: 'UPS' },
-      { label: 'Delivery cost', value: '12.50 USD' },
-    ]);
-    const serialized = JSON.stringify(view);
-    for (const pii of [
-      'Private Name',
-      '555-0199',
-      'private@example.com',
-      '999 Private Ave',
-      '33101',
-    ]) {
-      expect(serialized).not.toContain(pii);
+    };
+    const cardView = mapOrderToCard(sampleOrder, { includeShipTo: false });
+    expect(cardView.sections.find((section) => section.heading === 'Ship to')).toBeUndefined();
+    expect(JSON.stringify(cardView)).not.toContain('Private Name');
+    expect(JSON.stringify(cardView)).not.toContain('999 Private Ave');
+    expect(JSON.stringify(cardView)).not.toContain('33101');
+    expect(JSON.stringify(cardView)).toContain('buyer1');
+
+    const prev = process.env.EBAY_MCP_REDACT_SHIP_TO;
+    process.env.EBAY_MCP_REDACT_SHIP_TO = 'true';
+    try {
+      const tableView = mapOrdersToTable({ orders: [sampleOrder], total: 1 });
+      expect(tableView.columns.map((c) => c.key)).not.toContain('shipToName');
+      expect(tableView.columns.map((c) => c.key)).not.toContain('shipToAddress');
+      expect(JSON.stringify(tableView)).not.toContain('Private Name');
+      expect(JSON.stringify(tableView)).not.toContain('999 Private Ave');
+      expect(JSON.stringify(tableView)).not.toContain('33101');
+    } finally {
+      if (prev === undefined) {
+        delete process.env.EBAY_MCP_REDACT_SHIP_TO;
+      } else {
+        process.env.EBAY_MCP_REDACT_SHIP_TO = prev;
+      }
     }
   });
 
